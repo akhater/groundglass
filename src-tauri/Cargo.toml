@@ -1,0 +1,30 @@
+[package]
+name = "groundglass"
+description = "Groundglass - live view with your own LUTs and zebra for Canon cameras."
+edition = "2024"
+version = "0.1.0"
+rust-version = "1.98"
+default-run = "groundglass"
+
+[lib]
+name = "groundglass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "groundglass"
+path = "src/main.rs"
+
+# Headless camera checks, same camera code as the app (see the file's header).
+[[bin]]
+name = "groundglass-cli"
+path = "src/bin/groundglass-cli.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Plain HTTP to the camera: no TLS, no async runtime of its own.
+ureq = { version = "3.4", default-features = false }

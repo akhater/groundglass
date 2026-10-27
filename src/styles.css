@@ -1,0 +1,106 @@
+:root {
+  --bg: #0d0d0f;
+  --panel: #18181c;
+  --text: #e8e8ea;
+  --muted: #9a9aa2;
+  --accent: #e0b25c;
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  font-size: 15px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Portrait: picture on top, controls below. Landscape: controls on the right edge. */
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.view {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--panel);
+}
+
+@media (orientation: landscape) {
+  .app {
+    flex-direction: row;
+  }
+  .view {
+    height: 100%;
+  }
+  .bar {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    width: 200px;
+    padding: 16px calc(16px + env(safe-area-inset-right)) 16px 16px;
+  }
+}
+
+.bar form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.bar input:not([type]) {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.bar button {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #1a1408;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.bar button:disabled {
+  opacity: 0.4;
+}
+
+.status {
+  color: var(--muted);
+  flex: 1;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
