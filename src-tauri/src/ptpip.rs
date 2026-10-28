@@ -64,6 +64,7 @@ impl Session {
             .map_err(|e| e.to_string())?
             .next()
             .ok_or("no address for the camera")?;
+        discover(address)?;
         let mut command = connect(address)?;
         command.set_read_timeout(Some(pairing_wait)).map_err(|e| e.to_string())?;
         send(&mut command, packet::INIT_COMMAND_REQUEST, &init_command_request(&GUID, NAME))?;
@@ -120,6 +121,32 @@ impl Session {
             }
         }
     }
+}
+
+/// What EOS Utility does just before it connects (recorded 2026-10-29): ask
+/// the network for Canon cameras, then read the camera's UPnP description.
+/// The camera drops a pairing request without it.
+fn discover(camera: SocketAddr) -> Result<(), String> {
+    let search = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\n\
+                  ST: urn:schemas-canon-com:service:ICPO-WFTEOSSystemService:1\r\n\r\n";
+    let udp = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+    udp.send_to(search.as_bytes(), "239.255.255.250:1900").map_err(|e| e.to_string())?;
+    // The answer only tells us what we already know (the camera is there): wait briefly for it.
+    udp.set_read_timeout(Some(Duration::from_millis(1500))).map_err(|e| e.to_string())?;
+    let mut answer = [0u8; 1024];
+    let _ = udp.recv_from(&mut answer);
+
+    let http = SocketAddr::new(camera.ip(), 49152);
+    let mut stream = TcpStream::connect_timeout(&http, Duration::from_secs(5)).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+    let request = format!(
+        "GET /upnp/CameraDevDesc.xml HTTP/1.1\r\nUser-Agent: wsCDeviceDetector\r\nHost: {http}\r\n\
+         Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    let mut description = Vec::new();
+    stream.read_to_end(&mut description).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn connect(address: SocketAddr) -> Result<TcpStream, String> {

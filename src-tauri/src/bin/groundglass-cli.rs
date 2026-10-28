@@ -141,12 +141,12 @@ fn ptp_info(host: &str) -> Result<(), String> {
         (0x9153, "live view frames (GetViewFinderData)"),
         (0x9158, "live view magnification (Zoom)"),
         (0x9159, "magnified area position (ZoomPosition)"),
-        (0x9156, "depth of field preview (DepthOfFieldPreview)"),
+        (0x9110, "setting properties (SetDevicePropValueEx)"),
     ] {
         println!("  0x{code:04x} {what}: {}", has_op(code));
     }
-    let dof = if info.properties.contains(&0xd1b2) { "yes" } else { "no" };
-    println!("  property 0xd1b2 depth of field preview: {dof}");
+    // The R6 Mark III doesn't list it, yet EOS Utility sets it (recorded 2026-10-29).
+    println!("  depth of field preview: property 0xd1b2 through 0x9110, unlisted but used by EOS Utility");
     let list = |codes: &[u16]| codes.iter().map(|c| format!("{c:04x}")).collect::<Vec<_>>().join(" ");
     println!("{} operations: {}", info.operations.len(), list(&info.operations));
     println!("{} properties: {}", info.properties.len(), list(&info.properties));
