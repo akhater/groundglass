@@ -12,6 +12,7 @@
 //!   groundglass-cli <address> details [seconds]   (level and AF frames; live view on)
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!   groundglass-cli <host> ptp-info   (PTP/IP, camera in "Connect to EOS Utility"; reads only)
+//!   groundglass-cli <host> ptp-live [seconds] [--save frame.jpg]   (PTP/IP live view speed)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
 //! (milliseconds within 100 s) when it arrived. Point the camera at a clock
@@ -31,11 +32,17 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | frame <file> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>... | ptp-info".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | frame <file> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>... | ptp-info | ptp-live [seconds] [--save file]".into());
     };
     // PTP/IP is the camera's other Wi-Fi mode: no CCAPI session to open first.
-    if command == "ptp-info" {
-        return ptp_info(address);
+    match command.as_str() {
+        "ptp-info" => return ptp_info(address),
+        "ptp-live" => {
+            let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
+            let save = args.iter().position(|a| a == "--save").and_then(|i| args.get(i + 1));
+            return ptp_live(address, Duration::from_secs(seconds), save);
+        }
+        _ => {}
     }
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -151,6 +158,56 @@ fn ptp_info(host: &str) -> Result<(), String> {
     println!("{} operations: {}", info.operations.len(), list(&info.operations));
     println!("{} properties: {}", info.properties.len(), list(&info.properties));
     Ok(())
+}
+
+/// Live view over PTP/IP for `length`: frames per second and size, as `live`
+/// does over CCAPI. Always turns live view output off and closes the session.
+fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let started = Instant::now();
+    let result = (|| {
+        session.start_live_view()?;
+        println!("live view started in {} ms", started.elapsed().as_millis());
+        let (mut frames, mut empty, mut bytes) = (0u32, 0u32, 0usize);
+        let mut last = Vec::new();
+        let pulling = Instant::now();
+        let mut events_at = Instant::now();
+        while pulling.elapsed() < length {
+            match session.frame()? {
+                Some(jpeg) => {
+                    frames += 1;
+                    bytes += jpeg.len();
+                    last = jpeg;
+                }
+                None => {
+                    empty += 1;
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+            // The camera expects its events to be read now and then, as EOS Utility does.
+            if events_at.elapsed() > Duration::from_secs(1) {
+                session.events()?;
+                events_at = Instant::now();
+            }
+        }
+        let secs = pulling.elapsed().as_secs_f64();
+        println!(
+            "{frames} frames in {secs:.1} s = {:.1} fps, average {} KB, {empty} not ready",
+            frames as f64 / secs,
+            bytes / frames.max(1) as usize / 1024
+        );
+        if let Some(path) = save.filter(|_| !last.is_empty()) {
+            std::fs::write(path, &last).map_err(|e| e.to_string())?;
+            println!("last frame saved to {path}");
+        }
+        Ok(())
+    })();
+    let stopped = session.stop_live_view();
+    println!("live view output off: {stopped:?}");
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(stopped).and(closed)
 }
 
 fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {

@@ -22,7 +22,20 @@ const MAX_PACKET: usize = 16 << 20;
 const GET_DEVICE_INFO: u16 = 0x1001;
 const OPEN_SESSION: u16 = 0x1002;
 const CLOSE_SESSION: u16 = 0x1003;
+// Canon EOS operations (names as in libgphoto2's ptp.h).
+const SET_DEVICE_PROP_VALUE_EX: u16 = 0x9110;
+const SET_REMOTE_MODE: u16 = 0x9114;
+const SET_EVENT_MODE: u16 = 0x9115;
+const GET_EVENT_DATA: u16 = 0x9116;
+const GET_VIEWFINDER_DATA: u16 = 0x9153;
+// Canon EOS properties.
+const EVF_OUTPUT_DEVICE: u32 = 0xd1b0;
+const EVF_MODE: u32 = 0xd1b1;
+
 const RESPONSE_OK: u16 = 0x2001;
+const RESPONSE_BUSY: u16 = 0x2019;
+/// Canon's "live view frame not ready yet".
+const RESPONSE_NOT_READY: u16 = 0xa102;
 
 /// Packet types (PTP/IP header field 2).
 mod packet {
@@ -84,8 +97,12 @@ impl Session {
             (other, _) => return Err(format!("unexpected answer on the event connection: packet type {other}")),
         }
 
+        // As EOS Utility opens (recorded 2026-10-29): device info first, then
+        // OpenSession with session 0x41, both as transaction 0.
         let mut session = Self { command, _event: event, transaction: 0 };
-        session.operation(OPEN_SESSION, &[1])?; // transaction 0, as PTP asks
+        session.operation(GET_DEVICE_INFO, &[])?;
+        session.transaction = 0;
+        session.operation(OPEN_SESSION, &[0x41])?;
         Ok(session)
     }
 
@@ -98,11 +115,74 @@ impl Session {
         self.operation(CLOSE_SESSION, &[]).map(|_| ())
     }
 
+    /// Starts live view towards us: remote mode 5 and event mode 1 as EOS
+    /// Utility sends them after OpenSession (the R6 Mark III refuses remote mode
+    /// 1 there), then as open-eos-control does over USB: EVF mode 1, EVF output
+    /// to the computer (2).
+    pub fn start_live_view(&mut self) -> Result<(), String> {
+        self.operation(SET_REMOTE_MODE, &[5])?;
+        self.operation(SET_EVENT_MODE, &[1])?;
+        self.events()?;
+        self.set_property(EVF_MODE, 1)?;
+        self.set_property(EVF_OUTPUT_DEVICE, 2)?;
+        self.events()
+    }
+
+    /// Live view output back off; the camera's own screen takes over again.
+    pub fn stop_live_view(&mut self) -> Result<(), String> {
+        self.set_property(EVF_OUTPUT_DEVICE, 0)
+    }
+
+    /// The newest live view frame, or None while the camera has none ready.
+    pub fn frame(&mut self) -> Result<Option<Vec<u8>>, String> {
+        let (response, data) = self.transact(GET_VIEWFINDER_DATA, &[0x0020_0000, 0, 0], None)?;
+        match response {
+            RESPONSE_OK => Ok(viewfinder_jpeg(&data).map(<[u8]>::to_vec)),
+            RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
+            other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
+        }
+    }
+
+    /// Reads (and drops) what the camera has to report. EOS Utility asks
+    /// continuously; the camera expects to be asked.
+    pub fn events(&mut self) -> Result<(), String> {
+        self.operation(GET_EVENT_DATA, &[]).map(|_| ())
+    }
+
+    fn set_property(&mut self, property: u32, value: u32) -> Result<(), String> {
+        let (response, _) = self.transact(SET_DEVICE_PROP_VALUE_EX, &[], Some(&property_value(property, value)))?;
+        match response {
+            RESPONSE_OK => Ok(()),
+            other => Err(format!("the camera answered 0x{other:04x} to setting property 0x{property:04x}")),
+        }
+    }
+
     /// Runs one operation that sends no data; returns what the camera sends back.
     fn operation(&mut self, code: u16, params: &[u32]) -> Result<Vec<u8>, String> {
+        match self.transact(code, params, None)? {
+            (RESPONSE_OK, data) => Ok(data),
+            (response, _) => Err(format!("the camera answered 0x{response:04x} to 0x{code:04x}")),
+        }
+    }
+
+    /// One operation: sends `out` as its data when given; returns the camera's
+    /// response code and any data it sends back.
+    fn transact(&mut self, code: u16, params: &[u32], out: Option<&[u8]>) -> Result<(u16, Vec<u8>), String> {
         let transaction = self.transaction;
         self.transaction += 1;
-        send(&mut self.command, packet::OPERATION_REQUEST, &operation_request(code, transaction, params))?;
+        let mut request = operation_request(code, transaction, params);
+        if out.is_some() {
+            request[..4].copy_from_slice(&2u32.to_le_bytes()); // data phase: we send data
+        }
+        send(&mut self.command, packet::OPERATION_REQUEST, &request)?;
+        if let Some(out) = out {
+            let mut start = transaction.to_le_bytes().to_vec();
+            start.extend_from_slice(&(out.len() as u64).to_le_bytes());
+            send(&mut self.command, packet::START_DATA, &start)?;
+            let mut end = transaction.to_le_bytes().to_vec();
+            end.extend_from_slice(out);
+            send(&mut self.command, packet::END_DATA, &end)?;
+        }
         let mut data = Vec::new();
         loop {
             let (kind, payload) = receive(&mut self.command)?;
@@ -111,11 +191,7 @@ impl Session {
                 // Data packets start with the transaction id.
                 packet::DATA | packet::END_DATA => data.extend_from_slice(payload.get(4..).unwrap_or_default()),
                 packet::OPERATION_RESPONSE if payload.len() >= 2 => {
-                    let response = u16::from_le_bytes([payload[0], payload[1]]);
-                    return match response {
-                        RESPONSE_OK => Ok(data),
-                        _ => Err(format!("the camera answered 0x{response:04x} to 0x{code:04x}")),
-                    };
+                    return Ok((u16::from_le_bytes([payload[0], payload[1]]), data));
                 }
                 other => return Err(format!("unexpected packet type {other} during 0x{code:04x}")),
             }
@@ -196,6 +272,33 @@ fn operation_request(code: u16, transaction: u32, params: &[u32]) -> Vec<u8> {
         out.extend_from_slice(&param.to_le_bytes());
     }
     out
+}
+
+/// SetDevicePropValueEx data: total length, property code, value.
+fn property_value(property: u32, value: u32) -> [u8; 12] {
+    let mut out = [0u8; 12];
+    out[..4].copy_from_slice(&12u32.to_le_bytes());
+    out[4..8].copy_from_slice(&property.to_le_bytes());
+    out[8..].copy_from_slice(&value.to_le_bytes());
+    out
+}
+
+/// The JPEG in a GetViewFinderData reply: blocks of length, type, body; the
+/// picture is type 1 (or 11).
+fn viewfinder_jpeg(data: &[u8]) -> Option<&[u8]> {
+    let mut rest = data;
+    while rest.len() >= 8 {
+        let length = u32::from_le_bytes(rest[..4].try_into().ok()?) as usize;
+        let kind = u32::from_le_bytes(rest[4..8].try_into().ok()?);
+        if length < 8 || length > rest.len() {
+            return None;
+        }
+        if kind == 0x01 || kind == 0x0b {
+            return Some(&rest[8..length]);
+        }
+        rest = &rest[length..];
+    }
+    None
 }
 
 fn parse_device_info(data: &[u8]) -> Result<DeviceInfo, String> {
@@ -285,6 +388,28 @@ mod tests {
             operation_request(0x1002, 0, &[1]),
             vec![1, 0, 0, 0, 0x02, 0x10, 0, 0, 0, 0, 1, 0, 0, 0]
         );
+    }
+
+    #[test]
+    fn property_write_is_length_code_value() {
+        // As EOS Utility turned depth of field preview on (recorded 2026-10-29).
+        assert_eq!(property_value(0xd1b2, 1), [0x0c, 0, 0, 0, 0xb2, 0xd1, 0, 0, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_jpeg_block() {
+        let block = |kind: u32, body: &[u8]| {
+            let mut out = ((8 + body.len()) as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(&kind.to_le_bytes());
+            out.extend_from_slice(body);
+            out
+        };
+        let mut data = block(0x0e, &[0; 16]);
+        data.extend(block(0x01, &[0xff, 0xd8, 0xff, 0xd9]));
+        assert_eq!(viewfinder_jpeg(&data), Some(&[0xff, 0xd8, 0xff, 0xd9][..]));
+        assert_eq!(viewfinder_jpeg(&block(0x0b, &[0xff, 0xd8])), Some(&[0xff, 0xd8][..]));
+        assert_eq!(viewfinder_jpeg(&block(0x0e, &[0; 16])), None);
+        assert_eq!(viewfinder_jpeg(&[9, 0, 0, 0]), None); // cut short
     }
 
     #[test]
