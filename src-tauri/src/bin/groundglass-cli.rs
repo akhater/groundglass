@@ -1,12 +1,18 @@
 //! Headless camera checks: the same camera code as the app, without the window.
 //!
 //!   groundglass-cli <address> info
-//!   groundglass-cli <address> live [seconds] [--display-off] [--save frame.jpg]
+//!   groundglass-cli <address> live [seconds] [--stream] [--display-off] [--save frame.jpg] [--stamp dir]
+//!
+//! `--stream` reads the camera's push stream instead of asking for each frame.
 //!   groundglass-cli <address> stop
+//!
+//! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
+//! (milliseconds within 100 s) when it arrived. Point the camera at a clock
+//! showing the same value: the difference is the true lag.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use groundglass_lib::ccapi::Camera;
+use groundglass_lib::ccapi::{Camera, CameraError};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -28,31 +34,51 @@ fn run(args: &[String]) -> Result<(), String> {
         "live" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
             let display_on = !args.iter().any(|a| a == "--display-off");
-            let save = args.iter().position(|a| a == "--save").and_then(|i| args.get(i + 1));
-            live(&camera, Duration::from_secs(seconds), display_on, save)
+            let option = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
+            let stream = args.iter().any(|a| a == "--stream");
+            live(&camera, Duration::from_secs(seconds), display_on, stream, option("--save"), option("--stamp"))
         }
         other => Err(format!("unknown command: {other}")),
     }
 }
 
 /// Starts live view, pulls frames as fast as the camera gives them, then always stops.
-fn live(camera: &Camera, length: Duration, display_on: bool, save: Option<&String>) -> Result<(), String> {
+fn live(
+    camera: &Camera,
+    length: Duration,
+    display_on: bool,
+    stream: bool,
+    save: Option<&String>,
+    stamp: Option<&String>,
+) -> Result<(), String> {
     let started = Instant::now();
     if let Err(error) = camera.start_live_view(display_on) {
         let _ = camera.stop_live_view();
         return Err(format!("start failed: {error:?}"));
     }
     println!("live view started in {} ms", started.elapsed().as_millis());
+    let mut next_frame: Box<dyn FnMut() -> Result<Vec<u8>, CameraError>> = if stream {
+        let mut frames = camera.open_stream().map_err(|e| format!("{e:?}"))?;
+        println!("reading the camera's push stream");
+        Box::new(move || frames.next_frame())
+    } else {
+        Box::new(|| camera.frame())
+    };
     let mut frames = 0u32;
     let mut bytes = 0usize;
     let mut last = Vec::new();
     let mut failure = None;
     let pulling = Instant::now();
     while pulling.elapsed() < length {
-        match camera.frame() {
+        match next_frame() {
             Ok(jpeg) => {
                 frames += 1;
                 bytes += jpeg.len();
+                if let Some(dir) = stamp.filter(|_| frames.is_multiple_of(10)) {
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                    let path = format!("{dir}/{:05}.jpg", now.as_millis() % 100_000);
+                    std::fs::write(path, &jpeg).map_err(|e| e.to_string())?;
+                }
                 last = jpeg;
             }
             Err(error) => {
@@ -61,6 +87,7 @@ fn live(camera: &Camera, length: Duration, display_on: bool, save: Option<&Strin
             }
         }
     }
+    drop(next_frame); // closes the stream before live view stops
     let secs = pulling.elapsed().as_secs_f64();
     println!(
         "{frames} frames in {secs:.1} s = {:.1} fps, average {} KB",

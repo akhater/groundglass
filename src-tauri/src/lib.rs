@@ -1,9 +1,11 @@
 pub mod ccapi;
+mod luts;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use ccapi::{Camera, CameraError, CameraInfo};
-use tauri::{Manager, RunEvent, State, ipc::Response};
+use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
 /// without holding the lock, so a slow frame never blocks a stop.
@@ -43,15 +45,43 @@ fn frame(connection: State<Connection>) -> Result<Response, CameraError> {
     connection.camera()?.frame().map(Response::new)
 }
 
+fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
+    let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    luts::folder(&data).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn list_luts(app: AppHandle) -> Result<Vec<String>, String> {
+    luts::list(&luts_folder(&app)?).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn save_lut(name: String, text: String, app: AppHandle) -> Result<(), String> {
+    luts::save(&luts_folder(&app)?, &name, &text).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn read_lut(name: String, app: AppHandle) -> Result<String, String> {
+    luts::read(&luts_folder(&app)?, &name).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(Connection::default())
-        .invoke_handler(tauri::generate_handler![connect, start_live_view, stop_live_view, frame])
+        .invoke_handler(tauri::generate_handler![
+            connect,
+            start_live_view,
+            stop_live_view,
+            frame,
+            list_luts,
+            save_lut,
+            read_lut
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Groundglass")
         .run(|app, event| {
-            // Leave the camera as we found it: live view off, its screen on.
+            // Leave the camera as we found it: live view off, its screen on, its Picture Style back.
             // Only while live: after a long idle the camera may have closed the
             // session, and a session must not be reopened by anything but `connect`.
             if let RunEvent::Exit = event

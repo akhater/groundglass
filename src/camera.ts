@@ -20,6 +20,11 @@ export const stopLiveView = () => invoke<void>("stop_live_view");
 /** The newest live view frame as JPEG bytes. */
 export const frame = () => invoke<ArrayBuffer>("frame");
 
+/** Looks: .cube files kept in the app's data folder. */
+export const listLuts = () => invoke<string[]>("list_luts");
+export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });
+export const readLut = (name: string) => invoke<string>("read_lut", { name });
+
 /** Errors that restarting live view fixes, with no need to reconnect. */
 export function isRestartable(error: unknown): boolean {
   const kind = (error as CameraError)?.kind;

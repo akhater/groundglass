@@ -1,6 +1,7 @@
 // The live view loop: one frame in flight, drawn as soon as it arrives.
 // Any failure restarts live view; a lost camera is retried until stopped.
 import * as camera from "./camera";
+import type { Cube } from "./cube";
 import { createRenderer } from "./render";
 
 export type Status =
@@ -14,6 +15,8 @@ export type LiveViewOptions = {
   cameraDisplayOn: boolean;
   /** Read on every frame, so changing it needs no restart. Null = zebra off. */
   zebraPercent: () => number | null;
+  /** Read on every frame too. Null = the camera's picture as it is. */
+  look: () => Cube | null;
   onStatus: (status: Status) => void;
   signal: AbortSignal;
 };
@@ -30,7 +33,7 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let connected = false;
   while (!signal.aborted) {
@@ -46,7 +49,7 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, onStatus, 
       while (!signal.aborted) {
         const jpeg = await camera.frame();
         const image = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
-        renderer.draw(image, zebraPercent());
+        renderer.draw(image, zebraPercent(), look());
         image.close();
         frames++;
         const now = performance.now();

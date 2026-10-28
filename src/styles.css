@@ -22,15 +22,19 @@ body,
   color: var(--text);
 }
 
-/* Portrait: picture on top, controls below. Landscape: controls on the right edge. */
+/* Narrow or tall: picture on top, controls below in as many columns as fit.
+   Wide: controls in a column on the right. Either way the controls scroll
+   rather than being cut off, and the picture takes all the space left. */
 .app {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .view {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   width: 100%;
   object-fit: contain;
@@ -38,35 +42,68 @@ body,
 }
 
 .bar {
-  display: flex;
-  flex-wrap: wrap;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   align-items: center;
-  gap: 12px;
+  gap: 10px 16px;
+  max-height: 50%;
+  overflow-y: auto;
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
   background: var(--panel);
 }
 
-@media (orientation: landscape) {
+@media (min-aspect-ratio: 5/4) and (min-width: 700px) {
   .app {
     flex-direction: row;
   }
   .view {
+    width: auto;
     height: 100%;
   }
   .bar {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    width: 200px;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    width: clamp(220px, 26vw, 300px);
+    max-height: none;
     padding: 16px calc(16px + env(safe-area-inset-right)) 16px 16px;
   }
 }
 
-.bar form {
+.row {
+  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  width: 100%;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  color: #f08a7a;
+  font-size: 0.85rem;
+  white-space: pre-line;
 }
 
 .bar input:not([type]) {

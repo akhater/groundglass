@@ -6,3 +6,4 @@ src-tauri/gen/schemas/
 # Local working files for development sessions, not part of the project.
 BACKLOG.md
 CLAUDE.md
+calibration/
