@@ -90,9 +90,6 @@ pub struct Camera {
     live: AtomicBool,
     /// The user's Picture Style while live view has it switched to Neutral.
     user_style: Mutex<Option<String>>,
-    /// The last level the camera reported: its poll lists only what changed,
-    /// so a still camera reports its level once per session.
-    level: Mutex<Option<Level>>,
 }
 
 /// Live view runs in this Picture Style: the conversion to LUT input is measured on it.
@@ -113,7 +110,6 @@ impl Camera {
             root: root_url(address),
             live: AtomicBool::new(false),
             user_style: Mutex::new(None),
-            level: Mutex::new(None),
         };
         camera.request("GET", "", None)?; // must be first: see the module notes
         let body = camera.get("/deviceinformation")?;
@@ -217,16 +213,13 @@ impl Camera {
         self.request("GET", path, None)
     }
 
-    /// The camera's level, None until it has reported one. The R6 Mark III
-    /// reports it only in its event poll, which lists what changed since the
-    /// previous poll (everything on the first), so the last value is kept.
+    /// The camera's level while live view runs, None if the camera gives
+    /// none. It comes with live view's details (`flipdetail?kind=info`) on
+    /// every request; the event poll lists it only when it changes, shared by
+    /// every client, so it can't be relied on there.
     pub fn level(&self) -> Result<Option<Level>> {
-        let poll = self.request("GET", "/ver110/event/polling?timeout=immediately", None)?;
-        let mut last = self.level.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(level) = level_from(&poll) {
-            *last = Some(level);
-        }
-        Ok(*last)
+        let details = self.get("/shooting/liveview/flipdetail?kind=info")?;
+        Ok(level_from(&details))
     }
 
     pub fn is_live(&self) -> bool {
@@ -273,8 +266,14 @@ impl Camera {
     }
 }
 
-fn level_from(poll: &[u8]) -> Option<Level> {
-    let json: serde_json::Value = serde_json::from_slice(poll).ok()?;
+/// The details arrive in a binary frame around the JSON: read the JSON object
+/// from its first `{` and ignore what follows.
+fn level_from(details: &[u8]) -> Option<Level> {
+    let start = details.iter().position(|&b| b == b'{')?;
+    let json: serde_json::Value = serde_json::Deserializer::from_slice(&details[start..])
+        .into_iter()
+        .next()?
+        .ok()?;
     let angle = &json["angleinformation"];
     // Hundredths of a degree, 0..36000: 35100 is 9 degrees below level.
     let degrees = |hundredths: f64| {
@@ -288,11 +287,11 @@ fn level_from(poll: &[u8]) -> Option<Level> {
 }
 
 /// Every request on stderr, except successful frames (counted) and level
-/// polls (several a second).
+/// reads (several a second).
 fn log<T>(method: &str, path: &str, body: &str, started: Instant, result: &Result<T>) {
     static FRAMES: AtomicU64 = AtomicU64::new(0);
     let ms = started.elapsed().as_millis();
-    if result.is_ok() && path.contains("/event/polling") {
+    if result.is_ok() && path.contains("/flipdetail") {
         return;
     }
     if result.is_ok() && path.ends_with("/flip") {
@@ -362,15 +361,18 @@ mod tests {
 
     #[test]
     fn level_reads_hundredths_of_a_degree_around_zero() {
-        // As the R6 Mark III reported it, lying almost flat (2026-10-28).
-        let poll = br#"{"storage":{},"angleinformation":{"cameraposture":0,"rolling":100,"pitching":35100}}"#;
-        assert_eq!(level_from(poll), Some(Level { roll: 1.0, pitch: -9.0 }));
+        // Framed as the R6 Mark III sends it (2026-10-28), lying almost flat.
+        let mut details = vec![0xff, 0x00, 0x02, 0x00, 0x00, 0x01, 0x00];
+        details.extend_from_slice(
+            br#"{"liveviewdata":{"histogram":[[0]]},"angleinformation":{"cameraposture":0,"rolling":100,"pitching":35100}}"#,
+        );
+        details.extend_from_slice(&[0xff, 0xff]);
+        assert_eq!(level_from(&details), Some(Level { roll: 1.0, pitch: -9.0 }));
     }
 
     #[test]
-    fn level_is_none_when_the_poll_has_no_angle() {
-        // Later polls list only what changed.
-        assert_eq!(level_from(br#"{"iso":{"value":"100"}}"#), None);
+    fn level_is_none_without_an_angle() {
+        assert_eq!(level_from(br#"{"liveviewdata":{}}"#), None);
         assert_eq!(level_from(b"not json"), None);
     }
 }

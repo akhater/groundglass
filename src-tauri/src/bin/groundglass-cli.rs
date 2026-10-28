@@ -5,6 +5,7 @@
 //!   groundglass-cli <address> stop
 //!   groundglass-cli <address> get <iso|av|tv>
 //!   groundglass-cli <address> set <iso|av|tv> <value>
+//!   groundglass-cli <address> level [seconds]   (live view must be on)
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
@@ -25,7 +26,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | probe [--live] <path>...".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | level [seconds] | probe [--live] <path>...".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -48,6 +49,15 @@ fn run(args: &[String]) -> Result<(), String> {
             camera.set_exposure_setting(setting(args.get(2))?, value).map_err(|e| format!("{e:?}"))
         }
         "probe" => probe(&camera, &args[2..]),
+        "level" => {
+            let seconds: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
+            let until = Instant::now() + Duration::from_secs(seconds);
+            while Instant::now() < until {
+                println!("{:?}", camera.level());
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Ok(())
+        }
         other => Err(format!("unknown command: {other}")),
     }
 }
