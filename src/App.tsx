@@ -1,13 +1,15 @@
+// The screen: the live picture with what opens over it, and the controls beside it.
 import { useEffect, useRef, useState } from "react";
-import * as camera from "./camera";
-import { Connection } from "./Connection";
-import { parseCube, type Cube } from "./cube";
+import type * as camera from "./camera";
+import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
-import { runLiveView, type Status } from "./liveView";
+import { ShootButton, useShoot } from "./ShootButton";
+import { remember, remembered } from "./storage";
 import { Strip } from "./Strip";
+import { useLiveView } from "./useLiveView";
+import { lookLabel, useLooks } from "./useLooks";
 
 const ADDRESS_KEY = "groundglass.address";
-const LOOK_KEY = "groundglass.look";
 const ZEBRA_LEVELS = [70, 80, 85, 90, 95, 98, 100];
 
 /** The strip of choices open over the picture. */
@@ -19,81 +21,21 @@ export default function App() {
   // On by default: with the camera's screen off, its own controls are locked too.
   const [cameraDisplayOn, setCameraDisplayOn] = useState(true);
   const [running, setRunning] = useState(false);
-  const [visible, setVisible] = useState(!document.hidden);
-  const [status, setStatus] = useState<Status | null>(null);
   const [zebraOn, setZebraOn] = useState(true);
   const [zebraPercent, setZebraPercent] = useState(98);
-  const [looks, setLooks] = useState<string[]>([]);
-  const [lookName, setLookName] = useState(() => remembered(LOOK_KEY) ?? "");
-  const [lookError, setLookError] = useState("");
-  const [shot, setShot] = useState<"idle" | "busy" | "done" | string>("idle");
   const [picker, setPicker] = useState<Picker | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
   /** Messages hidden with a tap, shown again when they change. */
   const [dismissed, setDismissed] = useState("");
-  // The loop reads these on every frame, so changing them needs no restart.
+  // The frame loop reads this on every frame, so changing it needs no restart.
   const zebra = useRef<number | null>(null);
   zebra.current = zebraOn ? zebraPercent : null;
-  const look = useRef<Cube | null>(null);
 
-  const live = running && status?.state === "live";
+  const looks = useLooks();
+  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube });
+  const live = status?.state === "live";
   const exposure = useExposure(live);
-
-  // Live view runs only while the app is on screen, so the camera's
-  // screen comes back on whenever Groundglass is in the background.
-  useEffect(() => {
-    const update = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-
-  useEffect(() => {
-    camera.listLuts().then(setLooks, (e) => setLookError(String(e)));
-  }, []);
-
-  useEffect(() => {
-    remember(LOOK_KEY, lookName);
-    look.current = null;
-    if (!lookName) return;
-    let current = true;
-    camera
-      .readLut(lookName)
-      .then((text) => {
-        if (current) look.current = parseCube(text, lookName);
-        setLookError("");
-      })
-      .catch((e) => setLookError(`${lookName}: ${e}`));
-    return () => {
-      current = false;
-    };
-  }, [lookName]);
-
-  useEffect(() => {
-    if (!running || !visible || !canvas.current) return;
-    const abort = new AbortController();
-    void runLiveView({
-      canvas: canvas.current,
-      address,
-      cameraDisplayOn,
-      zebraPercent: () => zebra.current,
-      look: () => look.current,
-      onStatus: setStatus,
-      signal: abort.signal,
-    });
-    return () => abort.abort();
-  }, [running, visible, address, cameraDisplayOn]);
-
-  async function shoot() {
-    if (shot === "busy") return;
-    setShot("busy");
-    try {
-      await camera.shoot();
-      setShot("done");
-    } catch (e) {
-      setShot(camera.describe(e));
-    }
-    setTimeout(() => setShot("idle"), 2000);
-  }
+  const shot = useShoot(live);
 
   const closeAll = () => {
     setPicker(null);
@@ -104,35 +46,13 @@ export default function App() {
     setPicker((open) => (open === next ? null : next));
   };
 
-  // Space takes a photo while live, unless typing in a field; Escape closes what is open.
-  const onKey = useRef((_: KeyboardEvent) => {});
-  onKey.current = (e) => {
-    if (e.code === "Escape") closeAll();
-    if (e.code !== "Space" || !live || e.repeat || (e.target as HTMLElement).closest("input")) return;
-    e.preventDefault();
-    void shoot();
-  };
   useEffect(() => {
-    const listener = (e: KeyboardEvent) => onKey.current(e);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Escape") closeAll();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  /** Checks each file parses, then keeps a copy in the app's looks folder. */
-  async function addLooks(files: FileList | null) {
-    const failed: string[] = [];
-    for (const file of Array.from(files ?? [])) {
-      try {
-        const text = await file.text();
-        parseCube(text, file.name);
-        await camera.saveLut(file.name, text);
-      } catch (e) {
-        failed.push(`${file.name}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-    setLookError(failed.join("\n"));
-    setLooks(await camera.listLuts());
-  }
 
   function strip() {
     const close = () => setPicker(null);
@@ -140,9 +60,9 @@ export default function App() {
       return (
         <Strip
           label="Look"
-          choices={[{ value: "", label: "None" }, ...looks.map((name) => ({ value: name, label: lookLabel(name) }))]}
-          value={lookName}
-          onPick={setLookName}
+          choices={[{ value: "", label: "None" }, ...looks.names.map((name) => ({ value: name, label: lookLabel(name) }))]}
+          value={looks.chosen}
+          onPick={looks.choose}
           onClose={close}
           extra={
             <label className="add">
@@ -153,7 +73,7 @@ export default function App() {
                 multiple
                 hidden
                 onChange={(e) => {
-                  void addLooks(e.target.files);
+                  void looks.add(e.target.files);
                   e.target.value = "";
                 }}
               />
@@ -190,8 +110,7 @@ export default function App() {
     );
   }
 
-  const shotError = shot !== "idle" && shot !== "busy" && shot !== "done" ? shot : "";
-  const errors = [running && status?.state === "lost" ? status.message : "", shotError, exposure.error, lookError]
+  const errors = [status?.state === "lost" ? status.message : "", shot.error, exposure.error, looks.error]
     .filter(Boolean)
     .join("\n");
 
@@ -205,19 +124,17 @@ export default function App() {
         }}
       >
         <canvas ref={canvas} className="view" />
-        {shot === "done" && <div className="flash" />}
+        {shot.state === "done" && <div className="flash" />}
 
         {running && (
-          <button
-            className={`status ${status?.state ?? "connecting"}`}
-            aria-expanded={connectionOpen}
-            onClick={() => {
+          <StatusBadge
+            status={status}
+            open={connectionOpen}
+            onToggle={() => {
               setPicker(null);
               setConnectionOpen((open) => !open);
             }}
-          >
-            {shortLabel(status)}
-          </button>
+          />
         )}
         {errors && errors !== dismissed && (
           <button className="errors" onClick={() => setDismissed(errors)} title="Tap to hide">
@@ -232,10 +149,9 @@ export default function App() {
             onAddress={setAddress}
             cameraDisplayOn={cameraDisplayOn}
             onCameraDisplay={setCameraDisplayOn}
-            status={label(status)}
+            status={status}
             onStart={() => {
               remember(ADDRESS_KEY, address);
-              setStatus(null);
               setRunning(true);
             }}
             onStop={() => {
@@ -266,7 +182,7 @@ export default function App() {
           <Chip
             kind="look"
             label="Look"
-            value={lookName ? lookLabel(lookName) : "None"}
+            value={looks.chosen ? lookLabel(looks.chosen) : "None"}
             open={picker === "look"}
             onClick={() => toggle("look")}
           />
@@ -280,12 +196,7 @@ export default function App() {
         </div>
         <div className="actions">
           <FocusButton focus={exposure.focus} disabled={!live} />
-          <button
-            className={`shoot ${shot === "busy" || shot === "done" ? shot : ""}`}
-            onClick={() => void shoot()}
-            disabled={shot === "busy" || !live}
-            aria-label="Shoot"
-          />
+          <ShootButton state={shot.state} disabled={!live} onShoot={() => void shot.shoot()} />
         </div>
       </nav>
     </main>
@@ -309,45 +220,4 @@ function Chip({ kind, label, value, open, disabled, onClick }: ChipProps) {
       <strong>{value}</strong>
     </button>
   );
-}
-
-const lookLabel = (name: string) => name.replace(/\.cube$/i, "");
-
-function label(status: Status | null): string {
-  switch (status?.state) {
-    case "live":
-      return `Live · ${status.fps} fps`;
-    case "lost":
-      return `${status.message} Retrying…`;
-    default:
-      return "Connecting…";
-  }
-}
-
-/** The status on the picture: short, the full one is in the connection panel. */
-function shortLabel(status: Status | null): string {
-  switch (status?.state) {
-    case "live":
-      return `${status.fps} fps`;
-    case "lost":
-      return "Retrying…";
-    default:
-      return "Connecting…";
-  }
-}
-
-function remembered(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function remember(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Only a convenience: the value is chosen again next time.
-  }
 }

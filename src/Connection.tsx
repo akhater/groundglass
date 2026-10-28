@@ -1,12 +1,14 @@
 // The camera's address and Start / Stop. Before Start it sits in the middle of
-// the picture; while live it opens from the status at the top.
+// the picture; while live it opens from the status badge at the top.
+import type { Status } from "./liveView";
+
 type Props = {
   running: boolean;
   address: string;
   onAddress: (address: string) => void;
   cameraDisplayOn: boolean;
   onCameraDisplay: (on: boolean) => void;
-  status: string;
+  status: Status | null;
   onStart: () => void;
   onStop: () => void;
 };
@@ -27,7 +29,7 @@ export function Connection(props: Props) {
     return (
       <div className="panel sheet" role="dialog" aria-label="Connection">
         <p className="address">{props.address}</p>
-        <p>{props.status}</p>
+        <p>{label(props.status)}</p>
         {screenToggle}
         <button className="secondary" onClick={props.onStop}>
           Stop live view
@@ -58,4 +60,24 @@ export function Connection(props: Props) {
       {screenToggle}
     </form>
   );
+}
+
+/** The status on the picture, kept short; tapping it opens the connection panel. */
+export function StatusBadge({ status, open, onToggle }: { status: Status | null; open: boolean; onToggle: () => void }) {
+  return (
+    <button className={`status ${status?.state ?? "connecting"}`} aria-expanded={open} onClick={onToggle}>
+      {status?.state === "live" ? `${status.fps} fps` : status?.state === "lost" ? "Retrying…" : "Connecting…"}
+    </button>
+  );
+}
+
+function label(status: Status | null): string {
+  switch (status?.state) {
+    case "live":
+      return `Live · ${status.fps} fps`;
+    case "lost":
+      return `${status.message} Retrying…`;
+    default:
+      return "Connecting…";
+  }
 }
