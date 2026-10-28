@@ -4,7 +4,7 @@ import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
-import { Composition, GUIDES, type Guide } from "./Composition";
+import { Composition, GUIDES, TURNING, type Guide } from "./Composition";
 import { Crop, cropBox, RATIOS, type Ratio } from "./Crop";
 import { Level } from "./Level";
 import { pictureBox } from "./picture";
@@ -63,8 +63,8 @@ export default function App() {
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
   const [guide, setGuide] = useState<Guide | "off">("off");
-  /** Which corner the triangle or spiral turns to, 0..3. */
-  const [guideFlip, setGuideFlip] = useState(0);
+  /** Quarter turns of the triangle or spiral, 0..3. */
+  const [guideRotation, setGuideRotation] = useState(0);
   const [crop, setCrop] = useState<Ratio | "off">("off");
   const details = useLiveDetails(live);
   const tapFocus = useTapFocus(canvas);
@@ -137,9 +137,10 @@ export default function App() {
           onPick={(value) => setGuide(value as Guide | "off")}
           onClose={close}
           extra={
-            (guide === "triangle" || guide === "spiral") && (
-              <button className="add" onClick={() => setGuideFlip((flip) => (flip + 1) % 4)}>
-                Flip
+            guide !== "off" &&
+            TURNING.includes(guide) && (
+              <button className="add" onClick={() => setGuideRotation((turns) => (turns + 1) % 4)}>
+                Rotate
               </button>
             )
           }
@@ -218,7 +219,7 @@ export default function App() {
         {live && crop !== "off" && picture && <Crop box={picture} ratio={crop} />}
         {live && guide !== "off" && (
           // Inside the crop when there is one: the guides are for the final frame.
-          <Composition guide={guide} flip={guideFlip} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
+          <Composition guide={guide} rotation={guideRotation} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} />}
         {live && (
