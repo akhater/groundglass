@@ -5,6 +5,7 @@
 //!   groundglass-cli <address> stop
 //!   groundglass-cli <address> get <iso|av|tv>
 //!   groundglass-cli <address> set <iso|av|tv> <value>
+//!   groundglass-cli <address> frame <file>   (one frame from live view that's already on)
 //!   groundglass-cli <address> shoot [--no-af]   (takes a photo)
 //!   groundglass-cli <address> focus <x> <y>   (fractions across the picture; live view on)
 //!   groundglass-cli <address> af [seconds]   (holds AF-ON, printing the AF frames)
@@ -29,7 +30,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>...".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | frame <file> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>...".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -52,6 +53,13 @@ fn run(args: &[String]) -> Result<(), String> {
             camera.set_exposure_setting(setting(args.get(2))?, value).map_err(|e| format!("{e:?}"))
         }
         "probe" => probe(&camera, &args[2..]),
+        "frame" => {
+            let path = args.get(2).ok_or("frame needs a file")?;
+            let jpeg = camera.frame().map_err(|e| format!("{e:?}"))?;
+            std::fs::write(path, &jpeg).map_err(|e| e.to_string())?;
+            println!("{} KB saved to {path}", jpeg.len() / 1024);
+            Ok(())
+        }
         "shoot" => {
             let autofocus = !args.iter().any(|a| a == "--no-af");
             camera.shoot(autofocus).map_err(|e| format!("{e:?}"))
