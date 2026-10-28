@@ -29,6 +29,8 @@ const SET_REMOTE_MODE: u16 = 0x9114;
 const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
+const REMOTE_RELEASE_ON: u16 = 0x9128;
+const REMOTE_RELEASE_OFF: u16 = 0x9129;
 const DO_AF: u16 = 0x9154;
 const TOUCH_AF_POSITION: u16 = 0x915b;
 const AF_CANCEL: u16 = 0x9160;
@@ -164,6 +166,15 @@ impl Session {
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
+    }
+
+    /// Takes a photo: a full press and release, as libgphoto2's "Press Full"
+    /// then "Release" (RemoteReleaseOn [3, 0], RemoteReleaseOff [3]). The
+    /// press doesn't force focusing either way: being checked that the camera
+    /// applies its own shutter-button setting (back-button focus: no AF).
+    pub fn shoot(&mut self) -> Result<(), String> {
+        self.operation(REMOTE_RELEASE_ON, &[3, 0])?;
+        self.operation(REMOTE_RELEASE_OFF, &[3]).map(|_| ())
     }
 
     /// Moves the AF point to (`x`, `y`) in sensor pixels, as touching the

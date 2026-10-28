@@ -16,6 +16,7 @@
 //!   groundglass-cli <host> ptp-zoom <dir>   (x1, x5, x10, DOF preview on/off; a frame of each in dir)
 //!   groundglass-cli <host> ptp-level [seconds]   (the camera's level twice a second)
 //!   groundglass-cli <host> ptp-tap   (moves the AF point top-left, bottom-right, centre; checks where it went)
+//!   groundglass-cli <host> ptp-shoot   (takes one photo during live view; prints the camera's reports after)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
@@ -50,6 +51,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "ptp-zoom" => return ptp_zoom(address, args.get(2).ok_or("ptp-zoom needs a folder for the frames")?),
         "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
         "ptp-tap" => return ptp_tap(address),
+        "ptp-shoot" => return ptp_shoot(address),
         "ptp-level" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(15);
             return ptp_level(address, Duration::from_secs(seconds));
@@ -310,6 +312,60 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     })();
     println!("x1: {:?}", session.zoom(1));
     println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Takes one photo during live view, then keeps live view going for three
+/// seconds, printing how many frames came and every report the camera sends
+/// (a new file shows as 0xC181 or 0xC1A7).
+fn ptp_shoot(host: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::{Session, viewfinder_block};
+    // Block 0x1c has content (non-zero) only while autofocus runs.
+    let focusing = |data: &[u8]| viewfinder_block(data, 0x1c).is_some_and(|b| b.iter().any(|&x| x != 0));
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        while session.frame()?.is_none() {}
+        session.events()?;
+        let pressed = Instant::now();
+        println!("shoot: {:?} in {} ms", session.shoot(), pressed.elapsed().as_millis());
+        let (mut frames, mut gaps, mut af_frames) = (0u32, 0u32, 0u32);
+        let mut events_at = Instant::now() - Duration::from_secs(1);
+        while pressed.elapsed() < Duration::from_secs(3) {
+            match session.viewfinder_data() {
+                Ok(Some(data)) => {
+                    frames += 1;
+                    if focusing(&data) {
+                        af_frames += 1;
+                    }
+                }
+                Ok(None) => gaps += 1,
+                Err(e) => println!("frame error: {e}"),
+            }
+            if events_at.elapsed() > Duration::from_millis(300) {
+                events_at = Instant::now();
+                let events = session.event_data()?;
+                let mut rest = &events[..];
+                while rest.len() >= 8 {
+                    let size = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+                    let kind = u32::from_le_bytes(rest[4..8].try_into().unwrap());
+                    if kind == 0 || size < 8 || size > rest.len() {
+                        break;
+                    }
+                    if kind != 0xc18a {
+                        let hex: String = rest[8..size].iter().take(24).map(|x| format!("{x:02x}")).collect();
+                        println!("{:5.2}s report 0x{kind:x}: {hex}", pressed.elapsed().as_secs_f32());
+                    }
+                    rest = &rest[size..];
+                }
+            }
+        }
+        println!("after the shot: {frames} frames ({af_frames} with autofocus running), {gaps} not ready, in 3 s");
+        Ok(())
+    })();
+    println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
     result.and(closed)
