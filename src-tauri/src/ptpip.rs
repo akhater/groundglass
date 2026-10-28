@@ -3,6 +3,7 @@
 //! what a read-only check needs: pair, open a session, read what the camera
 //! supports. Research and references: BACKLOG.md, "PTP/IP".
 
+use crate::ccapi::Level;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -28,7 +29,6 @@ const SET_REMOTE_MODE: u16 = 0x9114;
 const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
-const SET_REQUEST_OLC_INFO_GROUP: u16 = 0x913d;
 const DO_AF: u16 = 0x9154;
 const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
@@ -163,13 +163,6 @@ impl Session {
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
-    }
-
-    /// Asks the camera to report these groups of shooting information (a bit
-    /// mask). EOS Utility sends 0xfff after opening; libgphoto2 names the
-    /// operation SetRequestOLCInfoGroup. Being tried for the level.
-    pub fn request_info_groups(&mut self, groups: u32) -> Result<(), String> {
-        self.operation(SET_REQUEST_OLC_INFO_GROUP, &[groups]).map(|_| ())
     }
 
     /// Back-button focus: DoAf (0x9154) while held, AfCancel (0x9160) on
@@ -345,6 +338,24 @@ fn property_value(property: u32, value: u32) -> [u8; 12] {
 /// The JPEG in a GetViewFinderData reply: blocks of length, type, body; the
 /// picture is type 1 (or 11).
 fn viewfinder_jpeg(data: &[u8]) -> Option<&[u8]> {
+    viewfinder_block(data, 0x01).or_else(|| viewfinder_block(data, 0x0b))
+}
+
+/// The camera's level from a GetViewFinderData reply: block 0x10 holds two
+/// words, then roll and pitch in hundredths of a degree, 0..36000, the same
+/// units as CCAPI (found 2026-10-29 by tilting the R6 Mark III).
+pub fn viewfinder_level(data: &[u8]) -> Option<Level> {
+    let body = viewfinder_block(data, 0x10)?;
+    let word = |i: usize| Some(u32::from_le_bytes(body.get(i..i + 4)?.try_into().ok()?));
+    let degrees = |hundredths: u32| {
+        let d = hundredths as f32 / 100.0;
+        if d > 180.0 { d - 360.0 } else { d }
+    };
+    Some(Level { roll: degrees(word(8)?), pitch: degrees(word(12)?) })
+}
+
+/// The body of the first block of type `wanted` in a GetViewFinderData reply.
+fn viewfinder_block(data: &[u8], wanted: u32) -> Option<&[u8]> {
     let mut rest = data;
     while rest.len() >= 8 {
         let length = u32::from_le_bytes(rest[..4].try_into().ok()?) as usize;
@@ -352,7 +363,7 @@ fn viewfinder_jpeg(data: &[u8]) -> Option<&[u8]> {
         if length < 8 || length > rest.len() {
             return None;
         }
-        if kind == 0x01 || kind == 0x0b {
+        if kind == wanted {
             return Some(&rest[8..length]);
         }
         rest = &rest[length..];
@@ -469,6 +480,21 @@ mod tests {
         assert_eq!(viewfinder_jpeg(&block(0x0b, &[0xff, 0xd8])), Some(&[0xff, 0xd8][..]));
         assert_eq!(viewfinder_jpeg(&block(0x0e, &[0; 16])), None);
         assert_eq!(viewfinder_jpeg(&[9, 0, 0, 0]), None); // cut short
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_level() {
+        // Block 0x10 as the R6 Mark III sent it, tilted 28 degrees and 1 down (2026-10-29).
+        let mut data = 16u32.to_le_bytes().to_vec(); // a block before it
+        data.extend_from_slice(&0x0eu32.to_le_bytes());
+        data.extend_from_slice(&[0; 8]);
+        data.extend_from_slice(&24u32.to_le_bytes());
+        data.extend_from_slice(&0x10u32.to_le_bytes());
+        for word in [2u32, 0, 2800, 35900] {
+            data.extend_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(viewfinder_level(&data), Some(Level { roll: 28.0, pitch: -1.0 }));
+        assert_eq!(viewfinder_level(&data[..16]), None);
     }
 
     #[test]
