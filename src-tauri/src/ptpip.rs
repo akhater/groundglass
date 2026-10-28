@@ -28,6 +28,8 @@ const SET_REMOTE_MODE: u16 = 0x9114;
 const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
+const DO_AF: u16 = 0x9154;
+const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
 const ZOOM_POSITION: u16 = 0x9159;
 // Canon EOS properties.
@@ -144,12 +146,24 @@ impl Session {
 
     /// The newest live view frame, or None while the camera has none ready.
     pub fn frame(&mut self) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.viewfinder_data()?.and_then(|data| viewfinder_jpeg(&data).map(<[u8]>::to_vec)))
+    }
+
+    /// A whole live view reply: the picture and the blocks that come with it
+    /// (length, type, body each). None while the camera has none ready.
+    pub fn viewfinder_data(&mut self) -> Result<Option<Vec<u8>>, String> {
         let (response, data) = self.transact(GET_VIEWFINDER_DATA, &[0x0020_0000, 0, 0], None)?;
         match response {
-            RESPONSE_OK => Ok(viewfinder_jpeg(&data).map(<[u8]>::to_vec)),
+            RESPONSE_OK => Ok(Some(data)),
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
+    }
+
+    /// Back-button focus: DoAf (0x9154) while held, AfCancel (0x9160) on
+    /// release, as open-eos-control does over USB.
+    pub fn autofocus(&mut self, held: bool) -> Result<(), String> {
+        self.operation(if held { DO_AF } else { AF_CANCEL }, &[]).map(|_| ())
     }
 
     /// Live view magnification: 1 (whole picture), 5 or 10, as EOS Utility
@@ -173,7 +187,13 @@ impl Session {
     /// Reads (and drops) what the camera has to report. EOS Utility asks
     /// continuously; the camera expects to be asked.
     pub fn events(&mut self) -> Result<(), String> {
-        self.operation(GET_EVENT_DATA, &[]).map(|_| ())
+        self.event_data().map(|_| ())
+    }
+
+    /// What the camera reports since it was last asked: records of length,
+    /// type, body (0xC189 a property's new value), ending with a type 0 record.
+    pub fn event_data(&mut self) -> Result<Vec<u8>, String> {
+        self.operation(GET_EVENT_DATA, &[])
     }
 
     fn set_property(&mut self, property: u32, value: u32) -> Result<(), String> {

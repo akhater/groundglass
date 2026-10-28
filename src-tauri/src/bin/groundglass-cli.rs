@@ -14,6 +14,7 @@
 //!   groundglass-cli <host> ptp-info   (PTP/IP, camera in "Connect to EOS Utility"; reads only)
 //!   groundglass-cli <host> ptp-live [seconds] [--save frame.jpg]   (PTP/IP live view speed)
 //!   groundglass-cli <host> ptp-zoom <dir>   (x1, x5, x10, DOF preview on/off; a frame of each in dir)
+//!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
@@ -46,6 +47,10 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "ptp-zoom" => return ptp_zoom(address, args.get(2).ok_or("ptp-zoom needs a folder for the frames")?),
         "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
+        "ptp-watch" => {
+            let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(25);
+            return ptp_watch(address, Duration::from_secs(seconds));
+        }
         _ => {}
     }
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
@@ -297,6 +302,96 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
         Ok(())
     })();
     println!("x1: {:?}", session.zoom(1));
+    println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Live view for `length`, printing (with the second it happened) every
+/// change in the blocks that come with each frame (all but the JPEG) and
+/// every record in the camera's reports, so a tilt, an AF press or a dial
+/// turn shows where it lands. Reads only; live view output off at the end.
+fn ptp_watch(host: &str, length: Duration) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    use std::collections::HashMap;
+    /// Records of length (u32), type (u32), body; stops at a type 0 record or bad length.
+    fn records(data: &[u8]) -> Vec<(u32, &[u8])> {
+        let mut out = Vec::new();
+        let mut rest = data;
+        while rest.len() >= 8 {
+            let size = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+            let kind = u32::from_le_bytes(rest[4..8].try_into().unwrap());
+            if kind == 0 || size < 8 || size > rest.len() {
+                break;
+            }
+            out.push((kind, &rest[8..size]));
+            rest = &rest[size..];
+        }
+        out
+    }
+    let hex = |b: &[u8]| b.iter().take(48).map(|x| format!("{x:02x}")).collect::<String>();
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        let started = Instant::now();
+        let mut blocks: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut properties: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut events_at = Instant::now();
+        let mut first_events = true;
+        let (mut pressed, mut released) = (false, false);
+        while started.elapsed() < length {
+            let t = started.elapsed().as_secs_f32();
+            // AF-ON from here: held from 8 s to 12 s.
+            if t >= 8.0 && !pressed {
+                pressed = true;
+                println!("{t:5.1}s AF-ON pressed: {:?}", session.autofocus(true));
+            }
+            if t >= 12.0 && !released {
+                released = true;
+                println!("{t:5.1}s AF-ON released: {:?}", session.autofocus(false));
+            }
+            if let Some(data) = session.viewfinder_data()? {
+                for (kind, body) in records(&data) {
+                    // The picture, and blocks that change every frame (timestamp,
+                    // histogram, and two not yet understood).
+                    if matches!(kind, 0x01 | 0x0b | 0x0a | 0x11 | 0x23 | 0xffff_ffff) {
+                        continue;
+                    }
+                    if blocks.get(&kind).map(Vec::as_slice) != Some(body) {
+                        println!("{t:5.1}s frame block 0x{kind:x} ({} bytes): {}", body.len(), hex(body));
+                        blocks.insert(kind, body.to_vec());
+                    }
+                }
+            }
+            if events_at.elapsed() > Duration::from_millis(300) {
+                events_at = Instant::now();
+                for (kind, body) in records(&session.event_data()?) {
+                    // 0xC189: a property's new value (code first). Print only changes.
+                    if kind == 0xc189 && body.len() >= 4 {
+                        let property = u32::from_le_bytes(body[..4].try_into().unwrap());
+                        if properties.get(&property).map(Vec::as_slice) != Some(&body[4..]) {
+                            if !first_events {
+                                println!("{t:5.1}s property 0x{property:04x} = {}", hex(&body[4..]));
+                            }
+                            properties.insert(property, body[4..].to_vec());
+                        }
+                    } else if !first_events && kind != 0xc18a {
+                        // 0xC18A (each setting's allowed values) repeats every second.
+                        println!("{t:5.1}s report 0x{kind:x} ({} bytes): {}", body.len(), hex(body));
+                    }
+                }
+                if first_events {
+                    println!("{:5.1}s first report: {} properties known", t, properties.len());
+                    first_events = false;
+                }
+            }
+        }
+        let mut codes: Vec<_> = properties.keys().map(|c| format!("{c:04x}")).collect();
+        codes.sort();
+        println!("properties reported: {}", codes.join(" "));
+        Ok(())
+    })();
     println!("live view output off: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
