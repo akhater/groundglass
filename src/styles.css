@@ -1,12 +1,17 @@
 :root {
   --bg: #0d0d0f;
-  --panel: #18181c;
-  --text: #e8e8ea;
-  --muted: #9a9aa2;
+  --panel: #17171b;
+  --line: #2e2e35;
+  --text: #ececee;
+  --muted: #9a9aa3;
   --accent: #e0b25c;
+  --live: #7fd492;
+  --bad: #f08a7a;
+  --scrim: rgb(10 10 12 / 0.86);
   color-scheme: dark;
   font-family: system-ui, sans-serif;
   font-size: 15px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {
@@ -22,158 +27,498 @@ body,
   color: var(--text);
 }
 
-/* Narrow or tall: picture on top, controls below in as many columns as fit.
-   Wide: controls in a column on the right. Either way the controls scroll
-   rather than being cut off, and the picture takes all the space left. */
-.app {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+button,
+input {
+  font: inherit;
+  color: inherit;
 }
 
-.view {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  object-fit: contain;
-  background: #000;
-}
-
-.bar {
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  align-items: center;
-  gap: 10px 16px;
-  max-height: 50%;
-  overflow-y: auto;
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-  background: var(--panel);
-}
-
-@media (min-aspect-ratio: 5/4) and (min-width: 700px) {
-  .app {
-    flex-direction: row;
-  }
-  .view {
-    width: auto;
-    height: 100%;
-  }
-  .bar {
-    grid-template-columns: minmax(0, 1fr);
-    align-content: center;
-    width: clamp(220px, 26vw, 300px);
-    max-height: none;
-    padding: 16px calc(16px + env(safe-area-inset-right)) 16px 16px;
-  }
-}
-
-.row {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bar select {
-  flex: 1;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid #333;
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 1rem;
-}
-
-.link {
-  color: var(--accent);
+button {
+  touch-action: manipulation;
   cursor: pointer;
 }
 
-.error {
-  margin: 0;
-  color: #f08a7a;
-  font-size: 0.85rem;
-  white-space: pre-line;
+button:disabled {
+  cursor: default;
 }
 
-.bar input:not([type]) {
-  flex: 1;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #333;
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 1rem;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.bar button {
-  padding: 10px 18px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #1a1408;
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-.bar button:disabled {
-  opacity: 0.4;
-}
-
-.bar button.secondary {
-  background: transparent;
-  border: 1px solid #444;
-  color: var(--text);
-}
-
-.exposure {
-  grid-column: 1 / -1;
+/* The picture takes all the space the controls leave. Tall: controls below
+   it, in thumb reach. Wide: controls in a column on the right. The controls
+   scroll rather than being cut off when the window is very small. */
+.app {
+  height: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
-.setting {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.8rem;
-  color: var(--muted);
+.stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
 }
 
-.bar button.af {
-  grid-column: 1 / -1;
-  min-height: 48px;
-  touch-action: none;
+.view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.rail {
+  display: grid;
+  gap: 10px;
+  justify-content: stretch;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 10px max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  background: var(--panel);
   user-select: none;
 }
 
-/* The one big target: easy to hit with a thumb on a phone. */
-.bar button.shoot {
-  grid-column: 1 / -1;
-  min-height: 56px;
-  font-size: 1.15rem;
-  letter-spacing: 0.02em;
+.rail > * {
+  width: 100%;
+  max-width: 520px;
+  margin-inline: auto;
 }
 
-.status {
+/* Tall: ISO, aperture and shutter on one row, look and zebra on the next. */
+.chips {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-flow: dense;
+  gap: 8px;
+}
+
+.chip.exposure,
+.chip.zebra {
+  grid-column: span 2;
+}
+
+.chip.look {
+  grid-column: span 4;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (orientation: landscape) {
+  .app {
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .rail {
+    width: clamp(216px, 26vw, 300px);
+    max-height: none;
+    /* "safe": when it scrolls, the top stays reachable. */
+    align-content: safe center;
+    padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      calc(12px + env(safe-area-inset-bottom)) 12px;
+  }
+  /* Two columns: ISO and aperture, shutter and zebra, then the look. */
+  .chips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .chip.exposure,
+  .chip.zebra {
+    grid-column: span 1;
+  }
+  .chip.look {
+    grid-column: 1 / -1;
+  }
+}
+
+/* A setting: its name small, its value large. */
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  text-align: left;
+}
+
+.chip span {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
-  flex: 1;
+}
+
+.chip strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chip[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.chip[aria-expanded="true"] strong {
+  color: var(--accent);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+}
+
+/* Back-button focus: lights up while held. */
+.af {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.af small {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.af.held {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #1a1408;
+}
+
+.af.held small {
+  color: inherit;
+}
+
+.af:disabled {
+  opacity: 0.45;
+}
+
+/* The shutter: one big round target for the thumb. */
+.shoot {
+  width: 76px;
+  height: 76px;
+  padding: 5px;
+  border: 3px solid var(--text);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.shoot::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--accent);
+  transition: transform 0.12s, background-color 0.12s;
+}
+
+.shoot:active::before,
+.shoot.busy::before {
+  transform: scale(0.82);
+}
+
+.shoot.done::before {
+  background: var(--text);
+}
+
+.shoot:disabled {
+  border-color: var(--line);
+}
+
+.shoot:disabled::before {
+  background: var(--line);
+}
+
+.shoot.busy:disabled {
+  border-color: var(--text);
+}
+
+.shoot.busy:disabled::before {
+  background: var(--accent);
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: flash 0.25s ease-out;
+}
+
+@keyframes flash {
+  from {
+    opacity: 0.5;
+  }
+}
+
+/* On the picture: status at the top left, messages under it. */
+.status {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--scrim);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.status.live::before {
+  background: var(--live);
+}
+
+.status.lost::before {
+  background: var(--bad);
+}
+
+.errors {
+  position: absolute;
+  top: calc(56px + env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  max-width: min(440px, calc(100% - 20px));
+  padding: 8px 12px;
+  border: 1px solid var(--bad);
+  border-radius: 10px;
+  background: var(--scrim);
+  color: var(--bad);
+  font-size: 0.85rem;
+  text-align: left;
+  white-space: pre-line;
+}
+
+/* Connection: centred before Start, under the status while live. */
+.panel {
+  position: absolute;
+  display: grid;
+  gap: 12px;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.connect {
+  inset: 0;
+  height: fit-content;
+  margin: auto;
+}
+
+.sheet {
+  top: calc(56px + env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  max-height: calc(100% - 66px - env(safe-area-inset-top));
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel .address {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.panel input:not([type]) {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 1rem;
+}
+
+.panel button {
+  min-height: 48px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.panel button.primary {
+  border: 0;
+  background: var(--accent);
+  color: #1a1408;
+}
+
+.panel button.primary:disabled {
+  opacity: 0.4;
+}
+
+.panel button.secondary {
+  border: 1px solid var(--line);
+  background: transparent;
 }
 
 .toggle {
   display: flex;
   align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  color: var(--muted);
+}
+
+.toggle input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* A strip of choices along the bottom of the picture. */
+.strip {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px max(8px, env(safe-area-inset-left));
+  background: var(--scrim);
+  border-top: 1px solid var(--line);
+}
+
+.choices {
+  position: relative;
+  flex: 1;
+  display: flex;
   gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+
+.choices > * {
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 14em;
+  min-width: 56px;
+  min-height: 48px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  justify-content: center;
+}
+
+.choices [aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #1a1408;
+  font-weight: 600;
+}
+
+.choices .add {
+  border-style: dashed;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.step {
+  flex: none;
+  width: 44px;
+  height: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.step:disabled {
+  opacity: 0.25;
+}
+
+@media (orientation: landscape) {
+  .strip {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+  }
+  .shoot::before {
+    transition: none;
+  }
+}
+
+/* Short windows: smaller targets, so the shutter stays on screen. */
+@media (orientation: landscape) and (max-height: 340px) {
+  .rail,
+  .chips {
+    gap: 6px;
+  }
+  .chip {
+    min-height: 44px;
+    padding-block: 3px;
+  }
+  .af {
+    min-height: 56px;
+  }
+  .shoot {
+    width: 64px;
+    height: 64px;
+  }
 }
