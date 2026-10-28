@@ -11,6 +11,7 @@
 //!   groundglass-cli <address> af [seconds]   (holds AF-ON, printing the AF frames)
 //!   groundglass-cli <address> details [seconds]   (level and AF frames; live view on)
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
+//!   groundglass-cli <host> ptp-info   (PTP/IP, camera in "Connect to EOS Utility"; reads only)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
 //! (milliseconds within 100 s) when it arrived. Point the camera at a clock
@@ -30,8 +31,12 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | frame <file> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>...".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | frame <file> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>... | ptp-info".into());
     };
+    // PTP/IP is the camera's other Wi-Fi mode: no CCAPI session to open first.
+    if command == "ptp-info" {
+        return ptp_info(address);
+    }
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
     match command.as_str() {
@@ -119,6 +124,32 @@ fn probe(camera: &Camera, args: &[String]) -> Result<(), String> {
     if live {
         camera.stop_live_view().map_err(|e| format!("{e:?}"))?;
     }
+    Ok(())
+}
+
+/// Pairs over PTP/IP, reads what the camera supports, and closes. Changes nothing.
+fn ptp_info(host: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    println!("Connecting over PTP/IP. The first time, press OK on the camera to pair (up to 90 s).");
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let info = session.device_info();
+    session.close()?;
+    let info = info?;
+    println!("{} {} (version {})", info.manufacturer, info.model, info.version);
+    let has_op = |code: u16| if info.operations.contains(&code) { "yes" } else { "no" };
+    for (code, what) in [
+        (0x9153, "live view frames (GetViewFinderData)"),
+        (0x9158, "live view magnification (Zoom)"),
+        (0x9159, "magnified area position (ZoomPosition)"),
+        (0x9156, "depth of field preview (DepthOfFieldPreview)"),
+    ] {
+        println!("  0x{code:04x} {what}: {}", has_op(code));
+    }
+    let dof = if info.properties.contains(&0xd1b2) { "yes" } else { "no" };
+    println!("  property 0xd1b2 depth of field preview: {dof}");
+    let list = |codes: &[u16]| codes.iter().map(|c| format!("{c:04x}")).collect::<Vec<_>>().join(" ");
+    println!("{} operations: {}", info.operations.len(), list(&info.operations));
+    println!("{} properties: {}", info.properties.len(), list(&info.properties));
     Ok(())
 }
 

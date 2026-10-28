@@ -1,5 +1,6 @@
 pub mod ccapi;
 mod luts;
+pub mod ptpip;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
