@@ -5,6 +5,7 @@ import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
 import { Composition, GUIDES, type Guide } from "./Composition";
+import { Crop, cropBox, RATIOS, type Ratio } from "./Crop";
 import { Level } from "./Level";
 import { pictureBox } from "./picture";
 import { ShootButton, useShoot } from "./ShootButton";
@@ -29,7 +30,7 @@ const PEAKING_CHOICES: { value: Peaking | "off"; label: string }[] = [
 ];
 
 /** The strip of choices open over the picture. */
-type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking" | "grid";
+type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking" | "grid" | "crop";
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -64,6 +65,7 @@ export default function App() {
   const [guide, setGuide] = useState<Guide | "off">("off");
   /** Which corner the triangle or spiral turns to, 0..3. */
   const [guideFlip, setGuideFlip] = useState(0);
+  const [crop, setCrop] = useState<Ratio | "off">("off");
   const details = useLiveDetails(live);
   const tapFocus = useTapFocus(canvas);
 
@@ -144,6 +146,17 @@ export default function App() {
         />
       );
     }
+    if (picker === "crop") {
+      return (
+        <Strip
+          label="Crop"
+          choices={[{ value: "off", label: "Off" }, ...RATIOS.map((ratio) => ({ value: ratio, label: ratio }))]}
+          value={crop}
+          onPick={(value) => setCrop(value as Ratio | "off")}
+          onClose={close}
+        />
+      );
+    }
     if (picker === "peaking") {
       return (
         <Strip
@@ -173,6 +186,9 @@ export default function App() {
     .filter(Boolean)
     .join("\n");
 
+  // Where the picture sits on screen, for what is drawn over it.
+  const picture = canvas.current && pictureBox(canvas.current);
+
   return (
     <main className="app">
       <section
@@ -198,15 +214,18 @@ export default function App() {
             }}
           />
         )}
-        {details && (
-          <AfFrames frames={details.afFrames} box={canvas.current && pictureBox(canvas.current)} />
-        )}
+        {details && <AfFrames frames={details.afFrames} box={picture} />}
+        {live && crop !== "off" && picture && <Crop box={picture} ratio={crop} />}
         {live && guide !== "off" && (
-          <Composition guide={guide} flip={guideFlip} box={canvas.current && pictureBox(canvas.current)} />
+          // Inside the crop when there is one: the guides are for the final frame.
+          <Composition guide={guide} flip={guideFlip} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} />}
         {live && (
           <div className="stage-tools">
+            <button aria-pressed={crop !== "off"} aria-expanded={picker === "crop"} onClick={() => toggle("crop")}>
+              Crop
+            </button>
             <button aria-pressed={guide !== "off"} aria-expanded={picker === "grid"} onClick={() => toggle("grid")}>
               Grid
             </button>

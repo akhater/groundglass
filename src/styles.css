@@ -670,6 +670,19 @@ button:disabled {
   color: var(--live);
 }
 
+/* Crop frame: everything outside the chosen ratio darkened. */
+.crop {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.crop div {
+  position: absolute;
+  outline: 1px solid rgb(255 255 255 / 0.6);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.65);
+}
+
 /* Composition guides: thin light lines that stay thin however they are scaled. */
 .composition {
   position: absolute;
