@@ -49,6 +49,32 @@ pub struct CameraInfo {
     pub firmware: String,
 }
 
+/// The exposure settings the app shows. Paths as open-eos-control uses them
+/// (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
+#[derive(Clone, Copy, Debug, serde::Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExposureSetting {
+    Iso,
+    Av,
+    Tv,
+}
+
+impl ExposureSetting {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Iso => "/shooting/settings/iso",
+            Self::Av => "/shooting/settings/av",
+            Self::Tv => "/shooting/settings/tv",
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct SettingState {
+    pub value: String,
+    pub choices: Vec<String>,
+}
+
 pub struct Camera {
     agent: Agent,
     /// `http://<host>:<port>/ccapi`
@@ -142,6 +168,36 @@ impl Camera {
             *user_style = None;
         }
         Ok(())
+    }
+
+    /// Takes a photo, like a full press of the shutter button, focusing first when `autofocus`.
+    /// Payload as open-eos-control sends it (`CcapiClient.kt`, 089e71a3).
+    pub fn shoot(&self, autofocus: bool) -> Result<()> {
+        self.post("/shooting/control/shutterbutton", &format!(r#"{{"af":{autofocus}}}"#))
+    }
+
+    /// Focuses while held, like a back-button AF-ON: `true` on press, `false` on release.
+    pub fn autofocus(&self, held: bool) -> Result<()> {
+        let action = if held { "start" } else { "stop" };
+        self.post("/shooting/control/af", &format!(r#"{{"action":"{action}"}}"#))
+    }
+
+    /// An exposure setting's current value and the values the camera accepts now
+    /// (empty when the shooting mode sets it, e.g. aperture in Tv).
+    pub fn exposure_setting(&self, setting: ExposureSetting) -> Result<SettingState> {
+        let body = self.get(setting.path())?;
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| CameraError::Refused(e.to_string()))?;
+        let text = |v: &serde_json::Value| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+        Ok(SettingState {
+            value: text(&json["value"]),
+            choices: json["ability"].as_array().map(|a| a.iter().map(text).collect()).unwrap_or_default(),
+        })
+    }
+
+    pub fn set_exposure_setting(&self, setting: ExposureSetting, value: &str) -> Result<()> {
+        let json = serde_json::json!({ "value": value }).to_string();
+        self.put(setting.path(), &json)
     }
 
     pub fn is_live(&self) -> bool {

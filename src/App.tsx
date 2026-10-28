@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { parseCube, type Cube } from "./cube";
+import { Exposure } from "./Exposure";
 import { runLiveView, type Status } from "./liveView";
 
 const ADDRESS_KEY = "groundglass.address";
@@ -19,6 +20,7 @@ export default function App() {
   const [looks, setLooks] = useState<string[]>([]);
   const [lookName, setLookName] = useState(() => remembered(LOOK_KEY) ?? "");
   const [lookError, setLookError] = useState("");
+  const [shot, setShot] = useState<"idle" | "busy" | "done" | string>("idle");
   // The loop reads these on every frame, so changing them needs no restart.
   const zebra = useRef<number | null>(null);
   zebra.current = zebraOn ? zebraPercent : null;
@@ -68,6 +70,32 @@ export default function App() {
     return () => abort.abort();
   }, [running, visible, address, cameraDisplayOn]);
 
+  async function shoot() {
+    if (shot === "busy") return;
+    setShot("busy");
+    try {
+      await camera.shoot();
+      setShot("done");
+    } catch (e) {
+      setShot(camera.describe(e));
+    }
+    setTimeout(() => setShot("idle"), 2000);
+  }
+
+  // Space takes a photo while live, unless typing in a field.
+  const shootRef = useRef(shoot);
+  shootRef.current = shoot;
+  useEffect(() => {
+    if (!running) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat || (e.target as HTMLElement).closest("input, select")) return;
+      e.preventDefault();
+      void shootRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [running]);
+
   /** Checks each file parses, then keeps a copy in the app's looks folder. */
   async function addLooks(files: FileList | null) {
     const failed: string[] = [];
@@ -89,10 +117,23 @@ export default function App() {
       <canvas ref={canvas} className="view" />
       <div className="bar">
         {running ? (
-          <div className="row">
-            <span className="status">{label(status)}</span>
-            <button onClick={() => setRunning(false)}>Stop</button>
-          </div>
+          <>
+            <button
+              className="shoot"
+              onClick={() => void shoot()}
+              disabled={shot === "busy" || status?.state !== "live"}
+            >
+              {shot === "done" ? "✓ Shot" : "Shoot"}
+            </button>
+            {shot !== "idle" && shot !== "busy" && shot !== "done" && <p className="error">{shot}</p>}
+            <Exposure live={status?.state === "live"} />
+            <div className="row">
+              <span className="status">{label(status)}</span>
+              <button className="secondary" onClick={() => setRunning(false)}>
+                Stop
+              </button>
+            </div>
+          </>
         ) : (
           <form
             className="row"

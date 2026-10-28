@@ -20,6 +20,22 @@ export const stopLiveView = () => invoke<void>("stop_live_view");
 /** The newest live view frame as JPEG bytes. */
 export const frame = () => invoke<ArrayBuffer>("frame");
 
+/** Takes a photo with autofocus, like a full press of the shutter button. */
+export const shoot = () => invoke<void>("shoot");
+
+/** Back-button focus: true on press, false on release. */
+export const autofocus = (held: boolean) => invoke<void>("autofocus", { held });
+
+/** Mirrors `ccapi::ExposureSetting`. */
+export type ExposureSetting = "iso" | "av" | "tv";
+/** `choices` is empty when the shooting mode sets the value (e.g. aperture in Tv). */
+export type SettingState = { value: string; choices: string[] };
+
+export const exposureSetting = (setting: ExposureSetting) =>
+  invoke<SettingState>("exposure_setting", { setting });
+export const setExposureSetting = (setting: ExposureSetting, value: string) =>
+  invoke<void>("set_exposure_setting", { setting, value });
+
 /** Looks: .cube files kept in the app's data folder. */
 export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });

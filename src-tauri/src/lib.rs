@@ -4,7 +4,7 @@ mod luts;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ccapi::{Camera, CameraError, CameraInfo};
+use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, SettingState};
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -45,6 +45,31 @@ fn frame(connection: State<Connection>) -> Result<Response, CameraError> {
     connection.camera()?.frame().map(Response::new)
 }
 
+#[tauri::command(async)]
+fn shoot(connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.shoot(true)
+}
+
+/// Back-button focus: `true` on press, `false` on release.
+#[tauri::command(async)]
+fn autofocus(held: bool, connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.autofocus(held)
+}
+
+#[tauri::command(async)]
+fn exposure_setting(setting: ExposureSetting, connection: State<Connection>) -> Result<SettingState, CameraError> {
+    connection.camera()?.exposure_setting(setting)
+}
+
+#[tauri::command(async)]
+fn set_exposure_setting(
+    setting: ExposureSetting,
+    value: String,
+    connection: State<Connection>,
+) -> Result<(), CameraError> {
+    connection.camera()?.set_exposure_setting(setting, &value)
+}
+
 fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
     let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     luts::folder(&data).map_err(|e| e.to_string())
@@ -74,6 +99,10 @@ pub fn run() {
             start_live_view,
             stop_live_view,
             frame,
+            shoot,
+            autofocus,
+            exposure_setting,
+            set_exposure_setting,
             list_luts,
             save_lut,
             read_lut

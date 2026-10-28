@@ -131,6 +131,42 @@ body,
   opacity: 0.4;
 }
 
+.bar button.secondary {
+  background: transparent;
+  border: 1px solid #444;
+  color: var(--text);
+}
+
+.exposure {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.bar button.af {
+  grid-column: 1 / -1;
+  min-height: 48px;
+  touch-action: none;
+  user-select: none;
+}
+
+/* The one big target: easy to hit with a thumb on a phone. */
+.bar button.shoot {
+  grid-column: 1 / -1;
+  min-height: 56px;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+}
+
 .status {
   color: var(--muted);
   flex: 1;
