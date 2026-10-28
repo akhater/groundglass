@@ -36,6 +36,11 @@ export const exposureSetting = (setting: ExposureSetting) =>
 export const setExposureSetting = (setting: ExposureSetting, value: string) =>
   invoke<void>("set_exposure_setting", { setting, value });
 
+/** Mirrors `ccapi::Level`: degrees from level. */
+export type Level = { roll: number; pitch: number };
+/** The camera's level when it moved since the last call, else null. */
+export const level = () => invoke<Level | null>("level");
+
 /** Looks: .cube files kept in the app's data folder. */
 export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });

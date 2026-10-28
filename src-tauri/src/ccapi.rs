@@ -69,6 +69,13 @@ impl ExposureSetting {
     }
 }
 
+/// The camera's electronic level, in degrees from level (-180..180).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Level {
+    pub roll: f32,
+    pub pitch: f32,
+}
+
 #[derive(Serialize)]
 pub struct SettingState {
     pub value: String,
@@ -206,6 +213,14 @@ impl Camera {
         self.request("GET", path, None)
     }
 
+    /// The camera's level when it moved since the last call (the first call
+    /// always has it), None when it hasn't. The R6 Mark III reports it only in
+    /// its event poll, which lists what changed since the previous poll.
+    pub fn level(&self) -> Result<Option<Level>> {
+        let poll = self.request("GET", "/ver110/event/polling?timeout=immediately", None)?;
+        Ok(level_from(&poll))
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }
@@ -250,10 +265,28 @@ impl Camera {
     }
 }
 
-/// Every request on stderr, except successful frames: those are counted.
+fn level_from(poll: &[u8]) -> Option<Level> {
+    let json: serde_json::Value = serde_json::from_slice(poll).ok()?;
+    let angle = &json["angleinformation"];
+    // Hundredths of a degree, 0..36000: 35100 is 9 degrees below level.
+    let degrees = |hundredths: f64| {
+        let d = hundredths / 100.0;
+        (if d > 180.0 { d - 360.0 } else { d }) as f32
+    };
+    Some(Level {
+        roll: degrees(angle["rolling"].as_f64()?),
+        pitch: degrees(angle["pitching"].as_f64()?),
+    })
+}
+
+/// Every request on stderr, except successful frames (counted) and level
+/// polls (several a second).
 fn log<T>(method: &str, path: &str, body: &str, started: Instant, result: &Result<T>) {
     static FRAMES: AtomicU64 = AtomicU64::new(0);
     let ms = started.elapsed().as_millis();
+    if result.is_ok() && path.contains("/event/polling") {
+        return;
+    }
     if result.is_ok() && path.ends_with("/flip") {
         let frames = FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
         if frames.is_multiple_of(100) {
@@ -308,7 +341,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::root_url;
+    use super::{Level, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -317,5 +350,19 @@ mod tests {
         assert_eq!(root_url("192.168.1.2:8080"), want);
         assert_eq!(root_url(" http://192.168.1.2:8080/ "), want);
         assert_eq!(root_url("http://192.168.1.2:8080/ccapi"), want);
+    }
+
+    #[test]
+    fn level_reads_hundredths_of_a_degree_around_zero() {
+        // As the R6 Mark III reported it, lying almost flat (2026-10-28).
+        let poll = br#"{"storage":{},"angleinformation":{"cameraposture":0,"rolling":100,"pitching":35100}}"#;
+        assert_eq!(level_from(poll), Some(Level { roll: 1.0, pitch: -9.0 }));
+    }
+
+    #[test]
+    fn level_is_none_when_the_poll_has_no_angle() {
+        // Later polls list only what changed.
+        assert_eq!(level_from(br#"{"iso":{"value":"100"}}"#), None);
+        assert_eq!(level_from(b"not json"), None);
     }
 }

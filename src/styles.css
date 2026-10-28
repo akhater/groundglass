@@ -552,3 +552,55 @@ button:disabled {
 .panel .recent button[aria-selected="true"] {
   color: var(--accent);
 }
+
+/* The camera's level: a line through the middle of the picture. */
+.level {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.level .horizon,
+.level span {
+  grid-area: 1 / 1;
+}
+
+.level .horizon {
+  width: 60%;
+  height: 2px;
+  background: #fff;
+  box-shadow: 0 0 2px #000;
+  transition: transform 0.2s;
+}
+
+.level.flat .horizon {
+  background: var(--live);
+}
+
+.level span {
+  align-self: end;
+  margin-bottom: 12px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: var(--scrim);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.level-toggle {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--scrim);
+  font-size: 0.85rem;
+}
+
+.level-toggle[aria-pressed="true"] {
+  color: var(--live);
+}

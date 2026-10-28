@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
+import { Level } from "./Level";
 import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
 import type { Peaking } from "./render";
 import { Strip } from "./Strip";
+import { useLevel } from "./useLevel";
 import { useLiveView } from "./useLiveView";
 import { lookLabel, useLooks } from "./useLooks";
 
@@ -54,6 +56,8 @@ export default function App() {
   const live = status?.state === "live";
   const exposure = useExposure(live);
   const shot = useShoot(live);
+  const [levelOn, setLevelOn] = useState(false);
+  const level = useLevel(live && levelOn);
 
   const closeAll = () => {
     setPicker(null);
@@ -164,6 +168,12 @@ export default function App() {
               setConnectionOpen((open) => !open);
             }}
           />
+        )}
+        {live && levelOn && <Level level={level} />}
+        {live && (
+          <button className="level-toggle" aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
+            Level
+          </button>
         )}
         {errors && errors !== dismissed && (
           <button className="errors" onClick={() => setDismissed(errors)} title="Tap to hide">
