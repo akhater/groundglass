@@ -200,6 +200,12 @@ impl Camera {
         self.put(setting.path(), &json)
     }
 
+    /// Any read under /ccapi, e.g. `/ver110/event/polling?continue=off`: for
+    /// headless research into what the camera reports. Reads only.
+    pub fn read_raw(&self, path: &str) -> Result<Vec<u8>> {
+        self.request("GET", path, None)
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }

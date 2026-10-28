@@ -5,6 +5,7 @@
 //!   groundglass-cli <address> stop
 //!   groundglass-cli <address> get <iso|av|tv>
 //!   groundglass-cli <address> set <iso|av|tv> <value>
+//!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
 //! (milliseconds within 100 s) when it arrived. Point the camera at a clock
@@ -24,7 +25,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value>".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | probe [--live] <path>...".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -46,8 +47,30 @@ fn run(args: &[String]) -> Result<(), String> {
             let value = args.get(3).ok_or("set needs a value")?;
             camera.set_exposure_setting(setting(args.get(2))?, value).map_err(|e| format!("{e:?}"))
         }
+        "probe" => probe(&camera, &args[2..]),
         other => Err(format!("unknown command: {other}")),
     }
+}
+
+/// Reads each path, with live view running when `--live` is given (some
+/// replies only exist then), and always stops it again.
+fn probe(camera: &Camera, args: &[String]) -> Result<(), String> {
+    let live = args.iter().any(|a| a == "--live");
+    if live {
+        camera.start_live_view(true).map_err(|e| format!("{e:?}"))?;
+    }
+    for path in args.iter().filter(|a| *a != "--live") {
+        match camera.read_raw(path) {
+            Ok(body) => println!("== {path}
+{}", String::from_utf8_lossy(&body)),
+            Err(error) => println!("== {path}
+{error:?}"),
+        }
+    }
+    if live {
+        camera.stop_live_view().map_err(|e| format!("{e:?}"))?;
+    }
+    Ok(())
 }
 
 fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {
