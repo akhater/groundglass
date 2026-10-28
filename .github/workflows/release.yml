@@ -1,0 +1,145 @@
+name: Release
+
+# Builds happen only when a release is published, never on a merge or a push:
+# Android (a signed APK), Windows, macOS and Linux, each attached to the
+# release. Pull requests only get the quick checks (ci.yml).
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows_x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - name: windows_arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+          - name: macos_arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - name: macos_x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          # The oldest supported Ubuntu, so the builds run on newer ones too.
+          - name: linux_x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          - name: linux_arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+    runs-on: ${{ matrix.runner }}
+    env:
+      BIN: src-tauri/target/${{ matrix.target }}/release
+      # The AppImage tool's own strip breaks on today's binaries.
+      NO_STRIP: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      # The window is WebKitGTK on Linux.
+      - name: Install the Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential pkg-config file patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          rustflags: ''
+          cache-workspaces: src-tauri
+
+      # Every [[bin]] in Cargo.toml goes in the installers, groundglass-cli too.
+      - name: Build
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p out
+          case "$RUNNER_OS" in
+            Windows) cp "$BIN"/bundle/nsis/*.exe out/ ;;
+            macOS) cp "$BIN"/bundle/dmg/*.dmg out/ ;;
+            Linux) cp "$BIN"/bundle/deb/*.deb "$BIN"/bundle/rpm/*.rpm "$BIN"/bundle/appimage/*.AppImage out/ ;;
+          esac
+          ls -la out
+          gh release upload "${{ github.event.release.tag_name }}" out/* --clobber
+
+  # 64-bit ARM only: every Android phone of the last several years. Signed
+  # with the release key (secrets ANDROID_KEYSTORE, base64 of a PKCS12 file,
+  # and ANDROID_KEYSTORE_PASSWORD), so each release installs over the last.
+  android:
+    name: build (android_arm64)
+    runs-on: ubuntu-latest
+    env:
+      APK: Groundglass_${{ github.event.release.tag_name }}_android_arm64.apk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-linux-android
+          rustflags: ''
+          cache-workspaces: src-tauri
+
+      # The runner image has the SDK and an NDK; the Android project is
+      # generated here rather than kept in the repository.
+      - name: Generate the Android project
+        run: |
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android init --ci
+          cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
+
+      - name: Build
+        run: npx tauri android build --apk --target aarch64 --ci
+
+      - name: Sign and attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          unsigned=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-unsigned.apk' | head -1)
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.p12"
+          "$tools/zipalign" -p -f 4 "$unsigned" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$RUNNER_TEMP/release.p12" --ks-type PKCS12 --ks-pass env:KS_PASS \
+            --out "$APK" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$APK" | head -3
+          rm "$RUNNER_TEMP/release.p12"
+          gh release upload "${{ github.event.release.tag_name }}" "$APK" --clobber
