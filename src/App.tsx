@@ -3,12 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
+import { AfFrames } from "./AfFrames";
 import { Level } from "./Level";
+import { pictureBox } from "./picture";
 import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
 import type { Peaking } from "./render";
 import { Strip } from "./Strip";
-import { useLevel } from "./useLevel";
+import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
@@ -58,8 +60,8 @@ export default function App() {
   const exposure = useExposure(live);
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
-  const level = useLevel(live && levelOn);
-  const tapFocus = useTapFocus(canvas, live);
+  const details = useLiveDetails(live);
+  const tapFocus = useTapFocus(canvas);
 
   const closeAll = () => {
     setPicker(null);
@@ -174,8 +176,14 @@ export default function App() {
             }}
           />
         )}
-        {tapFocus.spot && <div className="focus-point" style={{ left: tapFocus.spot.x, top: tapFocus.spot.y }} />}
-        {live && levelOn && <Level level={level} />}
+        {details && (
+          <AfFrames
+            frames={details.afFrames}
+            box={canvas.current && pictureBox(canvas.current)}
+            servo={exposure.states.afoperation?.value === "servo"}
+          />
+        )}
+        {live && levelOn && <Level level={details?.level ?? null} />}
         {live && (
           <button className="level-toggle" aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
             Level

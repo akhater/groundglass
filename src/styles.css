@@ -664,14 +664,19 @@ button:disabled {
   color: var(--live);
 }
 
-/* Where the AF point was moved to: a small frame, like the camera's own. */
-.focus-point {
+/* The camera's AF frames, as it reports them: green once focus is held, blue in Servo. */
+.af-frame {
   position: absolute;
-  width: 44px;
-  height: 44px;
-  margin: -22px 0 0 -22px;
   border: 2px solid #fff;
-  border-radius: 4px;
+  border-radius: 3px;
   box-shadow: 0 0 2px #000;
   pointer-events: none;
+}
+
+.af-frame.focused {
+  border-color: var(--live);
+}
+
+.af-frame.servo {
+  border-color: #4aa8ff;
 }

@@ -50,14 +50,16 @@ pub struct CameraInfo {
     pub firmware: String,
 }
 
-/// The exposure settings the app shows. Paths as open-eos-control uses them
-/// (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
+/// The shooting settings the app reads and sets: exposure, and the AF mode
+/// (One-Shot or Servo, for the AF frame's colour). Paths as open-eos-control
+/// uses them (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
 #[derive(Clone, Copy, Debug, serde::Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExposureSetting {
     Iso,
     Av,
     Tv,
+    AfOperation,
 }
 
 impl ExposureSetting {
@@ -66,6 +68,7 @@ impl ExposureSetting {
             Self::Iso => "/shooting/settings/iso",
             Self::Av => "/shooting/settings/av",
             Self::Tv => "/shooting/settings/tv",
+            Self::AfOperation => "/shooting/settings/afoperation",
         }
     }
 }
@@ -76,6 +79,29 @@ pub struct Level {
     pub roll: f32,
     pub pitch: f32,
 }
+
+/// An AF frame as fractions of live view's picture (top-left corner and size).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct AfFrame {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    /// The camera holds focus on it.
+    pub focused: bool,
+}
+
+/// What comes with live view besides the picture, read a few times a second.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveDetails {
+    pub level: Option<Level>,
+    pub af_frames: Vec<AfFrame>,
+}
+
+/// AF frame `status` once focus is locked; 48 while waiting (R6 Mark III,
+/// 2026-10-28). Other values, e.g. a failed focus, aren't known yet.
+const AF_FOCUSED: u64 = 17;
 
 #[derive(Serialize)]
 pub struct SettingState {
@@ -214,13 +240,15 @@ impl Camera {
         self.request("GET", path, None)
     }
 
-    /// The camera's level while live view runs, None if the camera gives
-    /// none. It comes with live view's details (`flipdetail?kind=info`) on
-    /// every request; the event poll lists it only when it changes, shared by
-    /// every client, so it can't be relied on there.
-    pub fn level(&self) -> Result<Option<Level>> {
+    /// The level and AF frames while live view runs, from live view's details
+    /// (`flipdetail?kind=info`), which carry them on every request. (The event
+    /// poll lists the level only when it changes, shared by every client.)
+    pub fn live_details(&self) -> Result<LiveDetails> {
         let details = self.get("/shooting/liveview/flipdetail?kind=info")?;
-        Ok(level_from(&details))
+        Ok(LiveDetails {
+            level: level_from(&details),
+            af_frames: af_frames_from(&details),
+        })
     }
 
     /// Moves the AF point to (`x`, `y`), fractions across live view's
@@ -296,6 +324,34 @@ fn focus_point(details: &[u8], x: f64, y: f64) -> Option<(u32, u32)> {
     Some((along("positionx", "positionwidth", x)?, along("positiony", "positionheight", y)?))
 }
 
+/// The camera gives frames in sensor pixels; the picture covers `image` on it.
+fn af_frames_from(details: &[u8]) -> Vec<AfFrame> {
+    let Some(json) = details_json(details) else { return Vec::new() };
+    let data = &json["liveviewdata"];
+    let image = &data["image"];
+    let (Some(left), Some(top), Some(width), Some(height)) = (
+        image["positionx"].as_f64(),
+        image["positiony"].as_f64(),
+        image["positionwidth"].as_f64(),
+        image["positionheight"].as_f64(),
+    ) else {
+        return Vec::new();
+    };
+    let frames = data["afframe"].as_array().map(Vec::as_slice).unwrap_or_default();
+    frames
+        .iter()
+        .filter_map(|frame| {
+            Some(AfFrame {
+                x: ((frame["x"].as_f64()? - left) / width) as f32,
+                y: ((frame["y"].as_f64()? - top) / height) as f32,
+                width: (frame["width"].as_f64()? / width) as f32,
+                height: (frame["height"].as_f64()? / height) as f32,
+                focused: frame["status"].as_u64() == Some(AF_FOCUSED),
+            })
+        })
+        .collect()
+}
+
 fn level_from(details: &[u8]) -> Option<Level> {
     let json = details_json(details)?;
     let angle = &json["angleinformation"];
@@ -310,8 +366,8 @@ fn level_from(details: &[u8]) -> Option<Level> {
     })
 }
 
-/// Every request on stderr, except successful frames (counted) and level
-/// reads (several a second).
+/// Every request on stderr, except successful frames (counted) and live view
+/// details (several a second).
 fn log<T>(method: &str, path: &str, body: &str, started: Instant, result: &Result<T>) {
     static FRAMES: AtomicU64 = AtomicU64::new(0);
     let ms = started.elapsed().as_millis();
@@ -375,7 +431,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Level, focus_point, level_from, root_url};
+    use super::{AfFrame, Level, af_frames_from, focus_point, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -407,6 +463,20 @@ mod tests {
         let zoomed = br#"{"liveviewdata":{"image":{"positionx":2784,"positiony":1856,"positionheight":928,"positionwidth":1392}}}"#;
         assert_eq!(focus_point(zoomed, 0.5, 0.5), Some((3480, 2320)));
         assert_eq!(focus_point(b"{}", 0.5, 0.5), None);
+    }
+
+    #[test]
+    fn af_frames_are_fractions_of_the_picture() {
+        // As the R6 Mark III reported a locked frame (2026-10-28), simplified sizes.
+        let details = br#"{"liveviewdata":{"afframe":[{"status":17,"select":1,"x":3480,"y":0,"width":696,"height":464},{"status":48,"select":0,"x":0,"y":2320,"width":696,"height":464}],"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960}}}"#;
+        assert_eq!(
+            af_frames_from(details),
+            vec![
+                AfFrame { x: 0.5, y: 0.0, width: 0.1, height: 0.1, focused: true },
+                AfFrame { x: 0.0, y: 0.5, width: 0.1, height: 0.1, focused: false },
+            ]
+        );
+        assert_eq!(af_frames_from(br#"{"liveviewdata":{"afframe":[]}}"#), vec![]);
     }
 
     #[test]

@@ -4,7 +4,7 @@ mod luts;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, Level, SettingState};
+use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, LiveDetails, SettingState};
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -73,8 +73,8 @@ fn set_exposure_setting(
 }
 
 #[tauri::command(async)]
-fn level(connection: State<Connection>) -> Result<Option<Level>, CameraError> {
-    connection.camera()?.level()
+fn live_details(connection: State<Connection>) -> Result<LiveDetails, CameraError> {
+    connection.camera()?.live_details()
 }
 
 #[tauri::command(async)]
@@ -115,7 +115,7 @@ pub fn run() {
             autofocus,
             exposure_setting,
             set_exposure_setting,
-            level,
+            live_details,
             set_focus_point,
             list_luts,
             save_lut,

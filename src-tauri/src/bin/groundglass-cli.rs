@@ -7,7 +7,8 @@
 //!   groundglass-cli <address> set <iso|av|tv> <value>
 //!   groundglass-cli <address> shoot [--no-af]   (takes a photo)
 //!   groundglass-cli <address> focus <x> <y>   (fractions across the picture; live view on)
-//!   groundglass-cli <address> level [seconds]   (live view must be on)
+//!   groundglass-cli <address> af [seconds]   (holds AF-ON, printing the AF frames)
+//!   groundglass-cli <address> details [seconds]   (level and AF frames; live view on)
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
@@ -28,7 +29,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | shoot [--no-af] | focus <x> <y> | level [seconds] | probe [--live] <path>...".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | shoot [--no-af] | focus <x> <y> | af [seconds] | details [seconds] | probe [--live] <path>...".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -59,11 +60,31 @@ fn run(args: &[String]) -> Result<(), String> {
             let fraction = |i: usize| args.get(i).and_then(|s| s.parse().ok()).ok_or("focus needs x and y, 0 to 1");
             camera.set_focus_point(fraction(2)?, fraction(3)?).map_err(|e| format!("{e:?}"))
         }
-        "level" => {
+        "af" => {
+            let seconds: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2);
+            let frames = || {
+                let details = camera.read_raw("/ver100/shooting/liveview/flipdetail?kind=info").unwrap_or_default();
+                let text = String::from_utf8_lossy(&details);
+                let start = text.find("\"afframe\"").unwrap_or(0);
+                let end = text[start..].find(']').map_or(text.len(), |i| start + i + 1);
+                text[start..end].to_string()
+            };
+            println!("before: {}", frames());
+            let pressed = Instant::now();
+            camera.autofocus(true).map_err(|e| format!("{e:?}"))?;
+            while pressed.elapsed() < Duration::from_secs(seconds) {
+                println!("{:>5} ms: {}", pressed.elapsed().as_millis(), frames());
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            camera.autofocus(false).map_err(|e| format!("{e:?}"))?;
+            println!("after: {}", frames());
+            Ok(())
+        }
+        "details" => {
             let seconds: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
             let until = Instant::now() + Duration::from_secs(seconds);
             while Instant::now() < until {
-                println!("{:?}", camera.level());
+                println!("{:?}", camera.live_details());
                 std::thread::sleep(Duration::from_millis(500));
             }
             Ok(())
@@ -98,7 +119,8 @@ fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {
         Some("iso") => Ok(ExposureSetting::Iso),
         Some("av") => Ok(ExposureSetting::Av),
         Some("tv") => Ok(ExposureSetting::Tv),
-        _ => Err("expected iso, av or tv".into()),
+        Some("afoperation") => Ok(ExposureSetting::AfOperation),
+        _ => Err("expected iso, av, tv or afoperation".into()),
     }
 }
 
