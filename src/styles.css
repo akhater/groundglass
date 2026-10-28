@@ -663,3 +663,15 @@ button:disabled {
 .level-toggle[aria-pressed="true"] {
   color: var(--live);
 }
+
+/* Where the AF point was moved to: a small frame, like the camera's own. */
+.focus-point {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 2px #000;
+  pointer-events: none;
+}

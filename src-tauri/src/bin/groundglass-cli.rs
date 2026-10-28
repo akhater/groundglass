@@ -6,6 +6,7 @@
 //!   groundglass-cli <address> get <iso|av|tv>
 //!   groundglass-cli <address> set <iso|av|tv> <value>
 //!   groundglass-cli <address> shoot [--no-af]   (takes a photo)
+//!   groundglass-cli <address> focus <x> <y>   (fractions across the picture; live view on)
 //!   groundglass-cli <address> level [seconds]   (live view must be on)
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!
@@ -27,7 +28,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | shoot [--no-af] | level [seconds] | probe [--live] <path>...".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value> | shoot [--no-af] | focus <x> <y> | level [seconds] | probe [--live] <path>...".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -53,6 +54,10 @@ fn run(args: &[String]) -> Result<(), String> {
         "shoot" => {
             let autofocus = !args.iter().any(|a| a == "--no-af");
             camera.shoot(autofocus).map_err(|e| format!("{e:?}"))
+        }
+        "focus" => {
+            let fraction = |i: usize| args.get(i).and_then(|s| s.parse().ok()).ok_or("focus needs x and y, 0 to 1");
+            camera.set_focus_point(fraction(2)?, fraction(3)?).map_err(|e| format!("{e:?}"))
         }
         "level" => {
             let seconds: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);

@@ -36,6 +36,9 @@ export const exposureSetting = (setting: ExposureSetting) =>
 export const setExposureSetting = (setting: ExposureSetting, value: string) =>
   invoke<void>("set_exposure_setting", { setting, value });
 
+/** Moves the AF point to (x, y), fractions across the picture. */
+export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
+
 /** Mirrors `ccapi::Level`: degrees from level. */
 export type Level = { roll: number; pitch: number };
 /** The camera's level while live, null if the camera gives none. */

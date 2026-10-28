@@ -77,6 +77,11 @@ fn level(connection: State<Connection>) -> Result<Option<Level>, CameraError> {
     connection.camera()?.level()
 }
 
+#[tauri::command(async)]
+fn set_focus_point(x: f64, y: f64, connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.set_focus_point(x, y)
+}
+
 fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
     let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     luts::folder(&data).map_err(|e| e.to_string())
@@ -111,6 +116,7 @@ pub fn run() {
             exposure_setting,
             set_exposure_setting,
             level,
+            set_focus_point,
             list_luts,
             save_lut,
             read_lut

@@ -10,6 +10,7 @@ import type { Peaking } from "./render";
 import { Strip } from "./Strip";
 import { useLevel } from "./useLevel";
 import { useLiveView } from "./useLiveView";
+import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
 
 const ADDRESSES_KEY = "groundglass.addresses";
@@ -58,6 +59,7 @@ export default function App() {
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
   const level = useLevel(live && levelOn);
+  const tapFocus = useTapFocus(canvas, live);
 
   const closeAll = () => {
     setPicker(null);
@@ -143,7 +145,7 @@ export default function App() {
     );
   }
 
-  const errors = [status?.state === "lost" ? status.message : "", shot.error, exposure.error, looks.error]
+  const errors = [status?.state === "lost" ? status.message : "", shot.error, exposure.error, looks.error, tapFocus.error]
     .filter(Boolean)
     .join("\n");
 
@@ -152,8 +154,11 @@ export default function App() {
       <section
         className="stage"
         onClick={(e) => {
-          // A tap on the picture closes whatever is open over it.
-          if (e.target === e.currentTarget || e.target === canvas.current) closeAll();
+          if (e.target !== e.currentTarget && e.target !== canvas.current) return;
+          // A tap on the picture closes whatever is open over it; with nothing
+          // open, it moves the camera's AF point there.
+          if (picker || connectionOpen) closeAll();
+          else if (live) void tapFocus.focusAt(e);
         }}
       >
         <canvas ref={canvas} className="view" />
@@ -169,6 +174,7 @@ export default function App() {
             }}
           />
         )}
+        {tapFocus.spot && <div className="focus-point" style={{ left: tapFocus.spot.x, top: tapFocus.spot.y }} />}
         {live && levelOn && <Level level={level} />}
         {live && (
           <button className="level-toggle" aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>

@@ -223,6 +223,15 @@ impl Camera {
         Ok(level_from(&details))
     }
 
+    /// Moves the AF point to (`x`, `y`), fractions across live view's
+    /// picture, as touching the camera's screen does.
+    pub fn set_focus_point(&self, x: f64, y: f64) -> Result<()> {
+        let details = self.get("/shooting/liveview/flipdetail?kind=info")?;
+        let (x, y) = focus_point(&details, x, y)
+            .ok_or_else(|| CameraError::Refused("the camera gave no live view picture size".into()))?;
+        self.put("/shooting/liveview/afframeposition", &format!(r#"{{"positionx":{x},"positiony":{y}}}"#))
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }
@@ -267,14 +276,28 @@ impl Camera {
     }
 }
 
-/// The details arrive in a binary frame around the JSON: read the JSON object
-/// from its first `{` and ignore what follows.
-fn level_from(details: &[u8]) -> Option<Level> {
+/// Live view's details arrive in a binary frame around the JSON: read the JSON
+/// object from its first `{` and ignore what follows.
+fn details_json(details: &[u8]) -> Option<serde_json::Value> {
     let start = details.iter().position(|&b| b == b'{')?;
-    let json: serde_json::Value = serde_json::Deserializer::from_slice(&details[start..])
-        .into_iter()
-        .next()?
-        .ok()?;
+    serde_json::Deserializer::from_slice(&details[start..]).into_iter().next()?.ok()
+}
+
+/// Sensor pixels for a point given as fractions across live view's picture,
+/// which covers `liveviewdata.image` on the sensor (a part of it when zoomed).
+fn focus_point(details: &[u8], x: f64, y: f64) -> Option<(u32, u32)> {
+    let json = details_json(details)?;
+    let image = &json["liveviewdata"]["image"];
+    let along = |start: &str, length: &str, fraction: f64| -> Option<u32> {
+        let start = image[start].as_f64()?;
+        let length = image[length].as_f64()?;
+        Some((start + fraction.clamp(0.0, 1.0) * length).round() as u32)
+    };
+    Some((along("positionx", "positionwidth", x)?, along("positiony", "positionheight", y)?))
+}
+
+fn level_from(details: &[u8]) -> Option<Level> {
+    let json = details_json(details)?;
     let angle = &json["angleinformation"];
     // Hundredths of a degree, 0..36000: 35100 is 9 degrees below level.
     let degrees = |hundredths: f64| {
@@ -352,7 +375,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Level, level_from, root_url};
+    use super::{Level, focus_point, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -372,6 +395,18 @@ mod tests {
         );
         details.extend_from_slice(&[0xff, 0xff]);
         assert_eq!(level_from(&details), Some(Level { roll: 1.0, pitch: -9.0 }));
+    }
+
+    #[test]
+    fn focus_point_maps_the_picture_onto_the_sensor() {
+        // As the R6 Mark III reports live view's picture: the whole sensor.
+        let details = br#"{"liveviewdata":{"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960,"sizex":6960,"sizey":4640}}}"#;
+        assert_eq!(focus_point(details, 0.5, 0.5), Some((3480, 2320)));
+        assert_eq!(focus_point(details, 0.0, 1.0), Some((0, 4640)));
+        // Zoomed in: the picture is a part of the sensor.
+        let zoomed = br#"{"liveviewdata":{"image":{"positionx":2784,"positiony":1856,"positionheight":928,"positionwidth":1392}}}"#;
+        assert_eq!(focus_point(zoomed, 0.5, 0.5), Some((3480, 2320)));
+        assert_eq!(focus_point(b"{}", 0.5, 0.5), None);
     }
 
     #[test]
