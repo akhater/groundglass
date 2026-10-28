@@ -3,6 +3,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import type { Cube } from "./cube";
 import { runLiveView, type Status } from "./liveView";
+import type { Peaking } from "./render";
 
 type Options = {
   canvas: RefObject<HTMLCanvasElement | null>;
@@ -12,10 +13,11 @@ type Options = {
   /** Read on every frame, so changing them needs no restart. */
   zebraPercent: RefObject<number | null>;
   look: RefObject<Cube | null>;
+  peaking: RefObject<Peaking | null>;
 };
 
 /** The live view's status; null while stopped. */
-export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent, look }: Options) {
+export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent, look, peaking }: Options) {
   const [visible, setVisible] = useState(!document.hidden);
   const [status, setStatus] = useState<Status | null>(null);
 
@@ -35,11 +37,12 @@ export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPe
       cameraDisplayOn,
       zebraPercent: () => zebraPercent.current,
       look: () => look.current,
+      peaking: () => peaking.current,
       onStatus: setStatus,
       signal: abort.signal,
     });
     return () => abort.abort();
-  }, [canvas, running, visible, address, cameraDisplayOn, zebraPercent, look]);
+  }, [canvas, running, visible, address, cameraDisplayOn, zebraPercent, look, peaking]);
 
   return running ? status : null;
 }

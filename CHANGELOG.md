@@ -2,7 +2,34 @@
 
 Newest first.
 
-## 26.44.2 - unreleased
+## 26.44.3 - unreleased
+
+## 26.44.2 - 2026-10-28
+
+### Added
+
+- **Focus peaking:** edges in focus are painted on live view, Off / Low / Mid /
+  High. It measures how abrupt an edge is, not how contrasty, so blurred
+  backgrounds stay clean. With the camera's DOF preview held, what is painted
+  is the depth of field.
+- **Tap to focus:** tap or click the picture to move the camera's AF point
+  there. The camera's own AF frame is drawn where it is, also when tracking:
+  green once One-Shot holds focus, blue while Servo tracks.
+- **Level:** the camera's electronic level, as a roll scale along the bottom
+  and a tilt scale up the side, green when level.
+- **Composition guides:** thirds, diagonal lines, golden triangle, golden
+  spiral (turns to portrait), phi grid, armature and centre lines.
+- **Crop frame:** 1:1, 5:4, 4:3 and 16:9, visual only; the guides fit the crop.
+- `groundglass-cli`: `get` / `set` exposure, `shoot`, `focus`, `af`,
+  `details`, `frame` and a read-only `probe`, for headless checks.
+
+### Fixed
+
+- **Shoot no longer drops live view.** While a photo is taken the camera
+  refuses live view frames ("During shooting or recording"); live view now
+  waits for it instead of reconnecting.
+- **Shoot doesn't autofocus.** Focus stays with AF-ON, as on a camera set up
+  with back-button focus.
 
 ## 26.44.1 - 2026-10-28
 

@@ -91,7 +91,7 @@ button:disabled {
   margin-inline: auto;
 }
 
-/* Tall: ISO, aperture and shutter on one row, look and zebra on the next. */
+/* Tall: ISO, aperture and shutter on one row, look, zebra and peaking on the next. */
 .chips {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -99,13 +99,8 @@ button:disabled {
   gap: 8px;
 }
 
-.chip.exposure,
-.chip.zebra {
+.chip {
   grid-column: span 2;
-}
-
-.chip.look {
-  grid-column: span 4;
 }
 
 .actions {
@@ -128,16 +123,12 @@ button:disabled {
     padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
       calc(12px + env(safe-area-inset-bottom)) 12px;
   }
-  /* Two columns: ISO and aperture, shutter and zebra, then the look. */
+  /* Two columns: ISO and aperture, shutter and look, zebra and peaking. */
   .chips {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .chip.exposure,
-  .chip.zebra {
+  .chip {
     grid-column: span 1;
-  }
-  .chip.look {
-    grid-column: 1 / -1;
   }
 }
 
@@ -560,4 +551,172 @@ button:disabled {
 
 .panel .recent button[aria-selected="true"] {
   color: var(--accent);
+}
+
+/* The camera's level: a roll scale along the bottom, a tilt scale up the side. */
+.level {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scale {
+  position: absolute;
+  border-radius: 3px;
+  background: var(--scrim);
+}
+
+/* The middle mark: level. */
+.scale::before {
+  content: "";
+  position: absolute;
+  background: var(--muted);
+}
+
+.scale i {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s, top 0.2s;
+}
+
+.scale.flat i {
+  background: var(--live);
+}
+
+.scale.roll {
+  left: 30%;
+  right: 30%;
+  bottom: 18px;
+  height: 6px;
+}
+
+.scale.roll::before {
+  left: calc(50% - 1px);
+  top: -4px;
+  width: 2px;
+  height: 14px;
+}
+
+.scale.roll i {
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+}
+
+.scale.pitch {
+  top: 30%;
+  bottom: 30%;
+  right: 18px;
+  width: 6px;
+}
+
+.scale.pitch::before {
+  top: calc(50% - 1px);
+  left: -4px;
+  width: 14px;
+  height: 2px;
+}
+
+.scale.pitch i {
+  left: -3px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+}
+
+.roll-value,
+.pitch-value {
+  position: absolute;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--scrim);
+}
+
+.roll-value {
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+}
+
+.pitch-value {
+  right: 30px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Grid and Level, over the top right of the picture. */
+.stage-tools {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+}
+
+.stage-tools button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--scrim);
+  font-size: 0.85rem;
+}
+
+.stage-tools button[aria-pressed="true"] {
+  color: var(--live);
+}
+
+/* Crop frame: everything outside the chosen ratio darkened. */
+.crop {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.crop div {
+  position: absolute;
+  outline: 1px solid rgb(255 255 255 / 0.6);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.65);
+}
+
+/* Composition guides: thin light lines that stay thin however they are scaled. */
+.composition {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.composition line,
+.composition path {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.7);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
+}
+
+.composition .dashed {
+  stroke-dasharray: 5 5;
+}
+
+/* The camera's AF points, as it reports them: green once One-Shot holds focus,
+   blue while Servo tracks. */
+.af-frame {
+  position: absolute;
+  border: 2px solid #fff;
+  border-radius: 3px;
+  box-shadow: 0 0 2px #000;
+  pointer-events: none;
+}
+
+.af-frame.focused {
+  border-color: var(--live);
+}
+
+.af-frame.tracking {
+  border-color: #4aa8ff;
 }

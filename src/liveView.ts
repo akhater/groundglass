@@ -2,7 +2,7 @@
 // Any failure restarts live view; a lost camera is retried until stopped.
 import * as camera from "./camera";
 import type { Cube } from "./cube";
-import { createRenderer } from "./render";
+import { createRenderer, type Peaking } from "./render";
 
 export type Status =
   | { state: "connecting" }
@@ -17,11 +17,15 @@ export type LiveViewOptions = {
   zebraPercent: () => number | null;
   /** Read on every frame too. Null = the camera's picture as it is. */
   look: () => Cube | null;
+  /** Read on every frame too. Null = peaking off. */
+  peaking: () => Peaking | null;
   onStatus: (status: Status) => void;
   signal: AbortSignal;
 };
 
 const RETRY_MS = 2000;
+/** While the camera takes a photo it sends no frames: ask again this often. */
+const BUSY_MS = 100;
 
 /** The previous run, so a new one starts only after the old one has stopped the camera. */
 let previousRun: Promise<void> = Promise.resolve();
@@ -33,7 +37,7 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let connected = false;
   while (!signal.aborted) {
@@ -47,9 +51,17 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, onSt
       let frames = 0;
       let since = performance.now();
       while (!signal.aborted) {
-        const jpeg = await camera.frame();
+        let jpeg: ArrayBuffer;
+        try {
+          jpeg = await camera.frame();
+        } catch (error) {
+          // Busy (a photo being taken): live view resumes by itself.
+          if (!camera.isBusy(error)) throw error;
+          await sleep(BUSY_MS, signal);
+          continue;
+        }
         const image = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
-        renderer.draw(image, zebraPercent(), look());
+        renderer.draw(image, zebraPercent(), look(), peaking());
         image.close();
         frames++;
         const now = performance.now();

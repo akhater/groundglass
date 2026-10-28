@@ -4,7 +4,7 @@ mod luts;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, SettingState};
+use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, LiveDetails, SettingState};
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -47,7 +47,9 @@ fn frame(connection: State<Connection>) -> Result<Response, CameraError> {
 
 #[tauri::command(async)]
 fn shoot(connection: State<Connection>) -> Result<(), CameraError> {
-    connection.camera()?.shoot(true)
+    // No autofocus from the shutter: focus stays on AF-ON (back-button focus),
+    // as a camera with focus split from the shutter expects.
+    connection.camera()?.shoot(false)
 }
 
 /// Back-button focus: `true` on press, `false` on release.
@@ -68,6 +70,16 @@ fn set_exposure_setting(
     connection: State<Connection>,
 ) -> Result<(), CameraError> {
     connection.camera()?.set_exposure_setting(setting, &value)
+}
+
+#[tauri::command(async)]
+fn live_details(connection: State<Connection>) -> Result<LiveDetails, CameraError> {
+    connection.camera()?.live_details()
+}
+
+#[tauri::command(async)]
+fn set_focus_point(x: f64, y: f64, connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.set_focus_point(x, y)
 }
 
 fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
@@ -103,6 +115,8 @@ pub fn run() {
             autofocus,
             exposure_setting,
             set_exposure_setting,
+            live_details,
+            set_focus_point,
             list_luts,
             save_lut,
             read_lut

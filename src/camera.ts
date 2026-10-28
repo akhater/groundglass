@@ -20,7 +20,7 @@ export const stopLiveView = () => invoke<void>("stop_live_view");
 /** The newest live view frame as JPEG bytes. */
 export const frame = () => invoke<ArrayBuffer>("frame");
 
-/** Takes a photo with autofocus, like a full press of the shutter button. */
+/** Takes a photo without autofocus (focus is AF-ON's job), like a full press of the shutter button. */
 export const shoot = () => invoke<void>("shoot");
 
 /** Back-button focus: true on press, false on release. */
@@ -36,10 +36,27 @@ export const exposureSetting = (setting: ExposureSetting) =>
 export const setExposureSetting = (setting: ExposureSetting, value: string) =>
   invoke<void>("set_exposure_setting", { setting, value });
 
+/** Moves the AF point to (x, y), fractions across the picture. */
+export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
+
+/** Mirrors `ccapi::Level`: degrees from level. */
+export type Level = { roll: number; pitch: number };
+/** Mirrors `ccapi::AfState`. */
+export type AfState = "waiting" | "focused" | "tracking" | "area";
+/** Mirrors `ccapi::AfFrame`: fractions of the picture. */
+export type AfFrame = { x: number; y: number; width: number; height: number; state: AfState };
+/** Mirrors `ccapi::LiveDetails`. */
+export type LiveDetails = { level: Level | null; afFrames: AfFrame[] };
+/** The level and AF frames, while live. */
+export const liveDetails = () => invoke<LiveDetails>("live_details");
+
 /** Looks: .cube files kept in the app's data folder. */
 export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });
 export const readLut = (name: string) => invoke<string>("read_lut", { name });
+
+/** The camera can't answer this instant (e.g. a photo is being taken). */
+export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";
 
 /** Errors that restarting live view fixes, with no need to reconnect. */
 export function isRestartable(error: unknown): boolean {

@@ -1,5 +1,6 @@
 // Draws live view frames with WebGL2, in one pass on the GPU:
-//   camera picture -> (with a look) conversion -> the look's LUT, then zebra.
+//   camera picture -> (with a look) conversion -> the look's LUT, then
+//   peaking, then zebra.
 //
 // The conversion turns the camera's live view (Picture Style Neutral) into the
 // input Argentum gives a LUT on its "Linear" rendering, so LUTs made in
@@ -10,6 +11,12 @@
 // as overall white, and a look never hides clipping. The stripe pattern follows
 // open-eos-control (Apache-2.0, bridge/open_eos_bridge/static/monitoring.js at
 // 089e71a3): light/dark diagonal bands; theirs tests luminance only.
+//
+// Peaking paints edges in focus on the camera picture: where brightness
+// changes abruptly compared with the contrast around it (a 3x3 Sobel gradient
+// against the brightness range within 3 pixels). An edge spread by blur loses
+// against that range however contrasty it is, so a soft background stays clean.
+// With the lens stopped down, what is painted is the depth of field.
 
 import { parseCube, type Cube } from "./cube";
 import conversionText from "./luts/r6iii-neutral-to-linear.cube?raw";
@@ -35,10 +42,35 @@ uniform vec3 lookMin;
 uniform vec3 lookScale;       // 1 / (domain max - domain min)
 uniform float zebraLevel;     // 0..1; above 1 turns zebra off
 uniform float stripeShift;    // moves the stripes so they never look like texture
+uniform float peakLevel;      // gradient / local range that counts as sharp; 0 turns peaking off
+uniform vec2 texel;           // one camera pixel in texture coordinates
 out vec4 color;
 
 vec3 sampleLut(sampler3D lut, vec3 c, float size) {
   return texture(lut, (clamp(c, 0.0, 1.0) * (size - 1.0) + 0.5) / size).rgb;
+}
+
+float luma(float x, float y) {
+  return dot(texture(frame, uv + texel * vec2(x, y)).rgb, vec3(0.299, 0.587, 0.114));
+}
+
+bool sharp() {
+  float tl = luma(-1.0, -1.0), t = luma(0.0, -1.0), tr = luma(1.0, -1.0);
+  float l = luma(-1.0, 0.0), c = luma(0.0, 0.0), r = luma(1.0, 0.0);
+  float bl = luma(-1.0, 1.0), b = luma(0.0, 1.0), br = luma(1.0, 1.0);
+  float gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
+  float gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
+  float gradient = length(vec2(gx, gy));
+  if (gradient < 0.12) return false; // flat or noise
+  float ring[8] = float[](luma(-3.0, 0.0), luma(3.0, 0.0), luma(0.0, -3.0), luma(0.0, 3.0),
+                          luma(-2.0, -2.0), luma(2.0, -2.0), luma(-2.0, 2.0), luma(2.0, 2.0));
+  float lo = min(min(min(tl, t), min(tr, l)), min(min(c, r), min(min(bl, b), br)));
+  float hi = max(max(max(tl, t), max(tr, l)), max(max(c, r), max(max(bl, b), br)));
+  for (int i = 0; i < 8; i++) {
+    lo = min(lo, ring[i]);
+    hi = max(hi, ring[i]);
+  }
+  return gradient >= peakLevel * (hi - lo);
 }
 
 void main() {
@@ -48,6 +80,7 @@ void main() {
     vec3 linear = sampleLut(conversion, camera, conversionSize);
     rgb = sampleLut(look, (linear - lookMin) * lookScale, lookSize);
   }
+  if (peakLevel > 0.0 && sharp()) rgb = vec3(1.0, 0.2, 0.35);
   if (max(camera.r, max(camera.g, camera.b)) >= zebraLevel) {
     float band = mod((gl_FragCoord.x + gl_FragCoord.y + stripeShift) / 6.0, 2.0);
     rgb = band < 1.0 ? mix(rgb, vec3(1.0), 0.7) : mix(rgb, vec3(0.0), 0.5);
@@ -57,8 +90,13 @@ void main() {
 
 export type Renderer = {
   /** `look` is drawn when given; changing it only re-uploads when it is a different LUT. */
-  draw(image: ImageBitmap, zebraPercent: number | null, look: Cube | null): void;
+  draw(image: ImageBitmap, zebraPercent: number | null, look: Cube | null, peaking: Peaking | null): void;
 };
+
+/** Peaking sensitivity: "high" marks slightly softer edges too. */
+export type Peaking = "low" | "mid" | "high";
+// A perfect edge scores 4; an edge blurred over n pixels about 8 / n.
+const PEAK_LEVELS: Record<Peaking, number> = { low: 3, mid: 2.2, high: 1.6 };
 
 /** Parsed once: every renderer shares it. */
 let conversionCube: Cube | null = null;
@@ -93,13 +131,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const zebraLevel = uniform("zebraLevel");
   const stripeShift = uniform("stripeShift");
   const lookSize = uniform("lookSize");
+  const peakLevel = uniform("peakLevel");
+  const texel = uniform("texel");
 
   return {
-    draw(image, zebraPercent, look) {
+    draw(image, zebraPercent, look, peaking) {
       if (canvas.width !== image.width || canvas.height !== image.height) {
         canvas.width = image.width;
         canvas.height = image.height;
       }
+      gl.uniform2f(texel, 1 / image.width, 1 / image.height);
       if (look !== shownLook) {
         shownLook = look;
         if (look) {
@@ -116,6 +157,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       gl.bindTexture(gl.TEXTURE_2D, frameTexture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
       gl.uniform1f(zebraLevel, zebraPercent === null ? 2 : zebraPercent / 100);
+      gl.uniform1f(peakLevel, peaking ? PEAK_LEVELS[peaking] : 0);
       gl.uniform1f(stripeShift, (performance.now() / 40) % 12);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     },

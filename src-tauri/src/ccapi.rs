@@ -34,8 +34,9 @@ pub enum CameraError {
     Unreachable(String),
     /// The camera's live view is off; starting it again fixes this.
     LiveViewOff,
-    /// "Device busy": the camera can't answer this instant, e.g. just after
-    /// live view starts. Asking again shortly fixes it.
+    /// "Device busy" or "During shooting or recording": the camera can't
+    /// answer this instant, e.g. just after live view starts or while a photo
+    /// is taken. Asking again shortly fixes it.
     Busy,
     /// The camera answered with an error.
     Refused(String),
@@ -67,6 +68,54 @@ impl ExposureSetting {
             Self::Tv => "/shooting/settings/tv",
         }
     }
+}
+
+/// The camera's electronic level, in degrees from level (-180..180).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Level {
+    pub roll: f32,
+    pub pitch: f32,
+}
+
+/// An AF frame as fractions of live view's picture (top-left corner and size).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct AfFrame {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub state: AfState,
+}
+
+/// What an AF frame shows, from its `status` as the R6 Mark III sends it
+/// (2026-10-28): 48 an AF point waiting, 17 One-Shot holding focus, 20 Servo
+/// tracking, 32 the whole AF area while Servo runs. Others aren't known yet.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AfState {
+    Waiting,
+    Focused,
+    Tracking,
+    Area,
+}
+
+impl AfState {
+    fn from_status(status: Option<u64>) -> Self {
+        match status {
+            Some(17) => Self::Focused,
+            Some(20) => Self::Tracking,
+            Some(32) => Self::Area,
+            _ => Self::Waiting,
+        }
+    }
+}
+
+/// What comes with live view besides the picture, read a few times a second.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveDetails {
+    pub level: Option<Level>,
+    pub af_frames: Vec<AfFrame>,
 }
 
 #[derive(Serialize)]
@@ -200,6 +249,32 @@ impl Camera {
         self.put(setting.path(), &json)
     }
 
+    /// Any read under /ccapi, e.g. `/ver110/event/polling?continue=off`: for
+    /// headless research into what the camera reports. Reads only.
+    pub fn read_raw(&self, path: &str) -> Result<Vec<u8>> {
+        self.request("GET", path, None)
+    }
+
+    /// The level and AF frames while live view runs, from live view's details
+    /// (`flipdetail?kind=info`), which carry them on every request. (The event
+    /// poll lists the level only when it changes, shared by every client.)
+    pub fn live_details(&self) -> Result<LiveDetails> {
+        let details = self.get("/shooting/liveview/flipdetail?kind=info")?;
+        Ok(LiveDetails {
+            level: level_from(&details),
+            af_frames: af_frames_from(&details),
+        })
+    }
+
+    /// Moves the AF point to (`x`, `y`), fractions across live view's
+    /// picture, as touching the camera's screen does.
+    pub fn set_focus_point(&self, x: f64, y: f64) -> Result<()> {
+        let details = self.get("/shooting/liveview/flipdetail?kind=info")?;
+        let (x, y) = focus_point(&details, x, y)
+            .ok_or_else(|| CameraError::Refused("the camera gave no live view picture size".into()))?;
+        self.put("/shooting/liveview/afframeposition", &format!(r#"{{"positionx":{x},"positiony":{y}}}"#))
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }
@@ -244,10 +319,76 @@ impl Camera {
     }
 }
 
-/// Every request on stderr, except successful frames: those are counted.
+/// Live view's details arrive in a binary frame around the JSON: read the JSON
+/// object from its first `{` and ignore what follows.
+fn details_json(details: &[u8]) -> Option<serde_json::Value> {
+    let start = details.iter().position(|&b| b == b'{')?;
+    serde_json::Deserializer::from_slice(&details[start..]).into_iter().next()?.ok()
+}
+
+/// Sensor pixels for a point given as fractions across live view's picture,
+/// which covers `liveviewdata.image` on the sensor (a part of it when zoomed).
+fn focus_point(details: &[u8], x: f64, y: f64) -> Option<(u32, u32)> {
+    let json = details_json(details)?;
+    let image = &json["liveviewdata"]["image"];
+    let along = |start: &str, length: &str, fraction: f64| -> Option<u32> {
+        let start = image[start].as_f64()?;
+        let length = image[length].as_f64()?;
+        Some((start + fraction.clamp(0.0, 1.0) * length).round() as u32)
+    };
+    Some((along("positionx", "positionwidth", x)?, along("positiony", "positionheight", y)?))
+}
+
+/// The camera gives frames in sensor pixels; the picture covers `image` on it.
+fn af_frames_from(details: &[u8]) -> Vec<AfFrame> {
+    let Some(json) = details_json(details) else { return Vec::new() };
+    let data = &json["liveviewdata"];
+    let image = &data["image"];
+    let (Some(left), Some(top), Some(width), Some(height)) = (
+        image["positionx"].as_f64(),
+        image["positiony"].as_f64(),
+        image["positionwidth"].as_f64(),
+        image["positionheight"].as_f64(),
+    ) else {
+        return Vec::new();
+    };
+    let frames = data["afframe"].as_array().map(Vec::as_slice).unwrap_or_default();
+    frames
+        .iter()
+        .filter_map(|frame| {
+            Some(AfFrame {
+                x: ((frame["x"].as_f64()? - left) / width) as f32,
+                y: ((frame["y"].as_f64()? - top) / height) as f32,
+                width: (frame["width"].as_f64()? / width) as f32,
+                height: (frame["height"].as_f64()? / height) as f32,
+                state: AfState::from_status(frame["status"].as_u64()),
+            })
+        })
+        .collect()
+}
+
+fn level_from(details: &[u8]) -> Option<Level> {
+    let json = details_json(details)?;
+    let angle = &json["angleinformation"];
+    // Hundredths of a degree, 0..36000: 35100 is 9 degrees below level.
+    let degrees = |hundredths: f64| {
+        let d = hundredths / 100.0;
+        (if d > 180.0 { d - 360.0 } else { d }) as f32
+    };
+    Some(Level {
+        roll: degrees(angle["rolling"].as_f64()?),
+        pitch: degrees(angle["pitching"].as_f64()?),
+    })
+}
+
+/// Every request on stderr, except successful frames (counted) and live view
+/// details (several a second).
 fn log<T>(method: &str, path: &str, body: &str, started: Instant, result: &Result<T>) {
     static FRAMES: AtomicU64 = AtomicU64::new(0);
     let ms = started.elapsed().as_millis();
+    if result.is_ok() && path.contains("/flipdetail") {
+        return;
+    }
     if result.is_ok() && path.ends_with("/flip") {
         let frames = FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
         if frames.is_multiple_of(100) {
@@ -279,7 +420,10 @@ fn read(mut response: ureq::http::Response<ureq::Body>) -> Result<Vec<u8>> {
                 .unwrap_or_default();
             if message.eq_ignore_ascii_case("live view not started") {
                 Err(CameraError::LiveViewOff)
-            } else if message.eq_ignore_ascii_case("device busy") {
+            } else if message.eq_ignore_ascii_case("device busy")
+                // While a photo is being taken (a slow shutter makes it long).
+                || message.eq_ignore_ascii_case("during shooting or recording")
+            {
                 Err(CameraError::Busy)
             } else {
                 Err(CameraError::Refused(format!("HTTP {status} {message}")))
@@ -302,7 +446,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::root_url;
+    use super::{AfFrame, AfState, Level, af_frames_from, focus_point, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -311,5 +455,51 @@ mod tests {
         assert_eq!(root_url("192.168.1.2:8080"), want);
         assert_eq!(root_url(" http://192.168.1.2:8080/ "), want);
         assert_eq!(root_url("http://192.168.1.2:8080/ccapi"), want);
+    }
+
+    #[test]
+    fn level_reads_hundredths_of_a_degree_around_zero() {
+        // Framed as the R6 Mark III sends it (2026-10-28), lying almost flat.
+        let mut details = vec![0xff, 0x00, 0x02, 0x00, 0x00, 0x01, 0x00];
+        details.extend_from_slice(
+            br#"{"liveviewdata":{"histogram":[[0]]},"angleinformation":{"cameraposture":0,"rolling":100,"pitching":35100}}"#,
+        );
+        details.extend_from_slice(&[0xff, 0xff]);
+        assert_eq!(level_from(&details), Some(Level { roll: 1.0, pitch: -9.0 }));
+    }
+
+    #[test]
+    fn focus_point_maps_the_picture_onto_the_sensor() {
+        // As the R6 Mark III reports live view's picture: the whole sensor.
+        let details = br#"{"liveviewdata":{"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960,"sizex":6960,"sizey":4640}}}"#;
+        assert_eq!(focus_point(details, 0.5, 0.5), Some((3480, 2320)));
+        assert_eq!(focus_point(details, 0.0, 1.0), Some((0, 4640)));
+        // Zoomed in: the picture is a part of the sensor.
+        let zoomed = br#"{"liveviewdata":{"image":{"positionx":2784,"positiony":1856,"positionheight":928,"positionwidth":1392}}}"#;
+        assert_eq!(focus_point(zoomed, 0.5, 0.5), Some((3480, 2320)));
+        assert_eq!(focus_point(b"{}", 0.5, 0.5), None);
+    }
+
+    #[test]
+    fn af_frames_are_fractions_of_the_picture() {
+        // Statuses as the R6 Mark III reported them (2026-10-28), simplified sizes.
+        let details = br#"{"liveviewdata":{"afframe":[{"status":17,"select":1,"x":3480,"y":0,"width":696,"height":464},{"status":48,"select":0,"x":0,"y":2320,"width":696,"height":464},{"status":32,"select":1,"x":0,"y":0,"width":6960,"height":4640},{"status":20,"select":1,"x":0,"y":0,"width":696,"height":464}],"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960}}}"#;
+        let frame = |x, y, width, height, state| AfFrame { x, y, width, height, state };
+        assert_eq!(
+            af_frames_from(details),
+            vec![
+                frame(0.5, 0.0, 0.1, 0.1, AfState::Focused),
+                frame(0.0, 0.5, 0.1, 0.1, AfState::Waiting),
+                frame(0.0, 0.0, 1.0, 1.0, AfState::Area),
+                frame(0.0, 0.0, 0.1, 0.1, AfState::Tracking),
+            ]
+        );
+        assert_eq!(af_frames_from(br#"{"liveviewdata":{"afframe":[]}}"#), vec![]);
+    }
+
+    #[test]
+    fn level_is_none_without_an_angle() {
+        assert_eq!(level_from(br#"{"liveviewdata":{}}"#), None);
+        assert_eq!(level_from(b"not json"), None);
     }
 }
