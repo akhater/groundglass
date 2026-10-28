@@ -30,6 +30,7 @@ const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
 const DO_AF: u16 = 0x9154;
+const TOUCH_AF_POSITION: u16 = 0x915b;
 const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
 const ZOOM_POSITION: u16 = 0x9159;
@@ -163,6 +164,13 @@ impl Session {
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
+    }
+
+    /// Moves the AF point to (`x`, `y`) in sensor pixels, as touching the
+    /// camera's screen does, without focusing (that's AF-ON's job). Sent as
+    /// open-eos-control does over USB: TouchAfPosition with [3, x, y].
+    pub fn touch_af(&mut self, x: u32, y: u32) -> Result<(), String> {
+        self.operation(TOUCH_AF_POSITION, &[3, x, y]).map(|_| ())
     }
 
     /// Back-button focus: DoAf (0x9154) while held, AfCancel (0x9160) on
@@ -355,7 +363,7 @@ pub fn viewfinder_level(data: &[u8]) -> Option<Level> {
 }
 
 /// The body of the first block of type `wanted` in a GetViewFinderData reply.
-fn viewfinder_block(data: &[u8], wanted: u32) -> Option<&[u8]> {
+pub fn viewfinder_block(data: &[u8], wanted: u32) -> Option<&[u8]> {
     let mut rest = data;
     while rest.len() >= 8 {
         let length = u32::from_le_bytes(rest[..4].try_into().ok()?) as usize;

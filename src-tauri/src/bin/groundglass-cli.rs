@@ -15,6 +15,7 @@
 //!   groundglass-cli <host> ptp-live [seconds] [--save frame.jpg]   (PTP/IP live view speed)
 //!   groundglass-cli <host> ptp-zoom <dir>   (x1, x5, x10, DOF preview on/off; a frame of each in dir)
 //!   groundglass-cli <host> ptp-level [seconds]   (the camera's level twice a second)
+//!   groundglass-cli <host> ptp-tap   (moves the AF point top-left, bottom-right, centre; checks where it went)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
@@ -48,6 +49,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "ptp-zoom" => return ptp_zoom(address, args.get(2).ok_or("ptp-zoom needs a folder for the frames")?),
         "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
+        "ptp-tap" => return ptp_tap(address),
         "ptp-level" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(15);
             return ptp_level(address, Duration::from_secs(seconds));
@@ -308,6 +310,50 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     })();
     println!("x1: {:?}", session.zoom(1));
     println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Taps the AF point to a quarter in from the top left, a quarter in from the
+/// bottom right, then the centre, and after each reads where the camera says
+/// the point is (block 0x5: the top-left corner of the magnify area around
+/// it, in sensor pixels; the sensor size is block 0x0e).
+fn ptp_tap(host: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::{Session, viewfinder_block};
+    let pair = |b: &[u8]| -> Option<(u32, u32)> {
+        Some((u32::from_le_bytes(b.get(..4)?.try_into().ok()?), u32::from_le_bytes(b.get(4..8)?.try_into().ok()?)))
+    };
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        // Newest data after a moment, so the camera has caught up.
+        let latest = |session: &mut Session| -> Result<Vec<u8>, String> {
+            let settle = Instant::now();
+            let mut last = None;
+            while settle.elapsed() < Duration::from_millis(1200) {
+                if let Some(data) = session.viewfinder_data()? {
+                    last = Some(data);
+                }
+            }
+            session.events()?;
+            last.ok_or_else(|| "no live view data".to_string())
+        };
+        let data = latest(&mut session)?;
+        let (width, height) = viewfinder_block(&data, 0x0e).and_then(pair).ok_or("no sensor size (block 0x0e)")?;
+        println!("sensor {width}x{height}; AF area before: {:?}", viewfinder_block(&data, 0x05).and_then(pair));
+        for (name, fx, fy) in [("top left", 0.25, 0.25), ("bottom right", 0.75, 0.75), ("centre", 0.5, 0.5)] {
+            let (x, y) = ((width as f64 * fx) as u32, (height as f64 * fy) as u32);
+            let sent = session.touch_af(x, y);
+            let data = latest(&mut session)?;
+            println!(
+                "tap {name} at ({x}, {y}): {sent:?}; AF area now {:?}",
+                viewfinder_block(&data, 0x05).and_then(pair)
+            );
+        }
+        Ok(())
+    })();
+    println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
     result.and(closed)
