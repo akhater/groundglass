@@ -41,6 +41,10 @@ const EVF_OUTPUT_DEVICE: u32 = 0xd1b0;
 const EVF_MODE: u32 = 0xd1b1;
 const DEPTH_OF_FIELD_PREVIEW: u32 = 0xd1b2;
 
+// Canon EOS report records (GetEventData).
+const PROPERTY_VALUE_CHANGED: u32 = 0xc189;
+const ALLOWED_VALUES_CHANGED: u32 = 0xc18a;
+
 const RESPONSE_OK: u16 = 0x2001;
 const RESPONSE_BUSY: u16 = 0x2019;
 /// Canon's "live view frame not ready yet".
@@ -75,6 +79,8 @@ pub struct Session {
     command: TcpStream,
     _event: TcpStream,
     transaction: u32,
+    /// What the camera has reported so far, kept up to date by every report read.
+    properties: Properties,
 }
 
 impl Session {
@@ -108,7 +114,7 @@ impl Session {
 
         // As EOS Utility opens (recorded 2026-10-29): device info first, then
         // OpenSession with session 0x41, both as transaction 0.
-        let mut session = Self { command, _event: event, transaction: 0 };
+        let mut session = Self { command, _event: event, transaction: 0, properties: Properties::default() };
         session.operation(GET_DEVICE_INFO, &[])?;
         session.transaction = 0;
         session.operation(OPEN_SESSION, &[0x41])?;
@@ -217,10 +223,19 @@ impl Session {
     /// What the camera reports since it was last asked: records of length,
     /// type, body (0xC189 a property's new value), ending with a type 0 record.
     pub fn event_data(&mut self) -> Result<Vec<u8>, String> {
-        self.operation(GET_EVENT_DATA, &[])
+        let data = self.operation(GET_EVENT_DATA, &[])?;
+        self.properties.apply(&data);
+        Ok(data)
     }
 
-    fn set_property(&mut self, property: u32, value: u32) -> Result<(), String> {
+    /// The camera's properties as reported so far (all of them arrive with
+    /// the first report after live view starts).
+    pub fn properties(&self) -> &Properties {
+        &self.properties
+    }
+
+    /// Sets a camera property (SetDevicePropValueEx, 32-bit value).
+    pub fn set_property(&mut self, property: u32, value: u32) -> Result<(), String> {
         let (response, _) = self.transact(SET_DEVICE_PROP_VALUE_EX, &[], Some(&property_value(property, value)))?;
         match response {
             RESPONSE_OK => Ok(()),
@@ -343,6 +358,51 @@ fn operation_request(code: u16, transaction: u32, params: &[u32]) -> Vec<u8> {
         out.extend_from_slice(&param.to_le_bytes());
     }
     out
+}
+
+/// The camera's properties as its reports describe them: each one's current
+/// value (0xC189 records) and the values it allows now (0xC18A records).
+#[derive(Default)]
+pub struct Properties {
+    values: std::collections::HashMap<u32, u32>,
+    allowed: std::collections::HashMap<u32, Vec<u32>>,
+}
+
+impl Properties {
+    pub fn value(&self, property: u32) -> Option<u32> {
+        self.values.get(&property).copied()
+    }
+
+    pub fn allowed(&self, property: u32) -> &[u32] {
+        self.allowed.get(&property).map_or(&[], Vec::as_slice)
+    }
+
+    /// Takes in a GetEventData reply: records of length, type, body, ending
+    /// with a type 0 record.
+    fn apply(&mut self, data: &[u8]) {
+        let word = |b: &[u8], i: usize| b.get(i..i + 4).map(|w| u32::from_le_bytes(w.try_into().unwrap()));
+        let mut rest = data;
+        while let (Some(size), Some(kind)) = (word(rest, 0), word(rest, 4)) {
+            let size = size as usize;
+            if kind == 0 || size < 8 || size > rest.len() {
+                break;
+            }
+            let body = &rest[8..size];
+            match (kind, word(body, 0), word(body, 4)) {
+                (PROPERTY_VALUE_CHANGED, Some(property), Some(value)) => {
+                    self.values.insert(property, value);
+                }
+                // Property, value type, count, then the values (32-bit each).
+                (ALLOWED_VALUES_CHANGED, Some(property), Some(_)) => {
+                    let count = word(body, 8).unwrap_or(0) as usize;
+                    let values = (0..count).map_while(|i| word(body, 12 + 4 * i)).collect();
+                    self.allowed.insert(property, values);
+                }
+                _ => {}
+            }
+            rest = &rest[size..];
+        }
+    }
 }
 
 /// SetDevicePropValueEx data: total length, property code, value.
@@ -499,6 +559,30 @@ mod tests {
         assert_eq!(viewfinder_jpeg(&block(0x0b, &[0xff, 0xd8])), Some(&[0xff, 0xd8][..]));
         assert_eq!(viewfinder_jpeg(&block(0x0e, &[0; 16])), None);
         assert_eq!(viewfinder_jpeg(&[9, 0, 0, 0]), None); // cut short
+    }
+
+    #[test]
+    fn reports_give_values_and_allowed_values() {
+        // As the R6 Mark III reported them (2026-10-29): ISO's allowed list
+        // (0xC18A: property, type 3, count, values), a property value
+        // (0xC189), then the end record.
+        let record = |kind: u32, body: &[u32]| {
+            let mut out = ((8 + 4 * body.len()) as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(&kind.to_le_bytes());
+            for word in body {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out
+        };
+        let mut data = record(0xc18a, &[0xd103, 3, 3, 0x48, 0x4b, 0x4d]);
+        data.extend(record(0xc189, &[0xd103, 0x4b]));
+        data.extend(record(0, &[]));
+        let mut properties = Properties::default();
+        properties.apply(&data);
+        assert_eq!(properties.value(0xd103), Some(0x4b));
+        assert_eq!(properties.allowed(0xd103), &[0x48, 0x4b, 0x4d]);
+        assert_eq!(properties.value(0xd101), None);
+        assert!(properties.allowed(0xd101).is_empty());
     }
 
     #[test]

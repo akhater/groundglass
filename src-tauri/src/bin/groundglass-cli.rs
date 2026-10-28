@@ -17,6 +17,7 @@
 //!   groundglass-cli <host> ptp-level [seconds]   (the camera's level twice a second)
 //!   groundglass-cli <host> ptp-tap   (moves the AF point top-left, bottom-right, centre; checks where it went)
 //!   groundglass-cli <host> ptp-shoot   (takes one photo during live view; prints the camera's reports after)
+//!   groundglass-cli <host> ptp-exposure   (reads ISO, aperture, shutter; steps ISO up one and back)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
@@ -52,6 +53,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
         "ptp-tap" => return ptp_tap(address),
         "ptp-shoot" => return ptp_shoot(address),
+        "ptp-exposure" => return ptp_exposure(address),
         "ptp-level" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(15);
             return ptp_level(address, Duration::from_secs(seconds));
@@ -312,6 +314,44 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     })();
     println!("x1: {:?}", session.zoom(1));
     println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Reads ISO (0xD103), aperture (0xD101) and shutter (0xD102) as the camera
+/// reports them (raw Canon codes and how many values each allows), steps ISO
+/// up one allowed value, checks the camera reports it, and puts it back.
+fn ptp_exposure(host: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    const SETTINGS: [(u32, &str); 3] = [(0xd103, "ISO"), (0xd101, "aperture"), (0xd102, "shutter")];
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        session.events()?;
+        for (code, name) in SETTINGS {
+            let p = session.properties();
+            println!("{name} (0x{code:04x}): value {:?}, {} allowed", p.value(code).map(|v| format!("{v:#x}")), p.allowed(code).len());
+        }
+        let iso = session.properties().value(0xd103).ok_or("the camera didn't report ISO")?;
+        let allowed = session.properties().allowed(0xd103).to_vec();
+        let index = allowed.iter().position(|&v| v == iso).ok_or("ISO's value isn't in its allowed list")?;
+        let next = *allowed.get(index + 1).or(allowed.get(index.wrapping_sub(1))).ok_or("only one ISO allowed")?;
+        println!("setting ISO {iso:#x} -> {next:#x}: {:?}", session.set_property(0xd103, next));
+        let waited = Instant::now();
+        while session.properties().value(0xd103) != Some(next) && waited.elapsed() < Duration::from_secs(2) {
+            session.events()?;
+        }
+        println!("camera reports ISO {:?} after {} ms", session.properties().value(0xd103).map(|v| format!("{v:#x}")), waited.elapsed().as_millis());
+        println!("putting ISO back to {iso:#x}: {:?}", session.set_property(0xd103, iso));
+        let waited = Instant::now();
+        while session.properties().value(0xd103) != Some(iso) && waited.elapsed() < Duration::from_secs(2) {
+            session.events()?;
+        }
+        println!("camera reports ISO {:?}", session.properties().value(0xd103).map(|v| format!("{v:#x}")));
+        Ok(())
+    })();
+    println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
     result.and(closed)
