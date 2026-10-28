@@ -14,7 +14,6 @@ export function useLevel(on: boolean) {
     let running = true;
     void (async () => {
       while (running) {
-        // The camera answers null when it hasn't moved: keep the last value.
         const next = await camera.level().catch(() => null);
         if (running && next) setLevel(next);
         await new Promise((resolve) => setTimeout(resolve, POLL_MS));

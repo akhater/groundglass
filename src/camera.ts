@@ -38,7 +38,7 @@ export const setExposureSetting = (setting: ExposureSetting, value: string) =>
 
 /** Mirrors `ccapi::Level`: degrees from level. */
 export type Level = { roll: number; pitch: number };
-/** The camera's level when it moved since the last call, else null. */
+/** The camera's level, null until it has reported one. */
 export const level = () => invoke<Level | null>("level");
 
 /** Looks: .cube files kept in the app's data folder. */

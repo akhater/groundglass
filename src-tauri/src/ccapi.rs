@@ -90,6 +90,9 @@ pub struct Camera {
     live: AtomicBool,
     /// The user's Picture Style while live view has it switched to Neutral.
     user_style: Mutex<Option<String>>,
+    /// The last level the camera reported: its poll lists only what changed,
+    /// so a still camera reports its level once per session.
+    level: Mutex<Option<Level>>,
 }
 
 /// Live view runs in this Picture Style: the conversion to LUT input is measured on it.
@@ -110,6 +113,7 @@ impl Camera {
             root: root_url(address),
             live: AtomicBool::new(false),
             user_style: Mutex::new(None),
+            level: Mutex::new(None),
         };
         camera.request("GET", "", None)?; // must be first: see the module notes
         let body = camera.get("/deviceinformation")?;
@@ -213,12 +217,16 @@ impl Camera {
         self.request("GET", path, None)
     }
 
-    /// The camera's level when it moved since the last call (the first call
-    /// always has it), None when it hasn't. The R6 Mark III reports it only in
-    /// its event poll, which lists what changed since the previous poll.
+    /// The camera's level, None until it has reported one. The R6 Mark III
+    /// reports it only in its event poll, which lists what changed since the
+    /// previous poll (everything on the first), so the last value is kept.
     pub fn level(&self) -> Result<Option<Level>> {
         let poll = self.request("GET", "/ver110/event/polling?timeout=immediately", None)?;
-        Ok(level_from(&poll))
+        let mut last = self.level.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(level) = level_from(&poll) {
+            *last = Some(level);
+        }
+        Ok(*last)
     }
 
     pub fn is_live(&self) -> bool {
