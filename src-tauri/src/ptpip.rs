@@ -28,9 +28,12 @@ const SET_REMOTE_MODE: u16 = 0x9114;
 const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
+const ZOOM: u16 = 0x9158;
+const ZOOM_POSITION: u16 = 0x9159;
 // Canon EOS properties.
 const EVF_OUTPUT_DEVICE: u32 = 0xd1b0;
 const EVF_MODE: u32 = 0xd1b1;
+const DEPTH_OF_FIELD_PREVIEW: u32 = 0xd1b2;
 
 const RESPONSE_OK: u16 = 0x2001;
 const RESPONSE_BUSY: u16 = 0x2019;
@@ -128,6 +131,12 @@ impl Session {
         self.events()
     }
 
+    /// Where live view goes while it runs: to us only (2), or to us and the
+    /// camera's own screen (3, being tried: the TFT bit plus the computer bit).
+    pub fn live_view_output(&mut self, camera_screen_too: bool) -> Result<(), String> {
+        self.set_property(EVF_OUTPUT_DEVICE, if camera_screen_too { 3 } else { 2 })
+    }
+
     /// Live view output back off; the camera's own screen takes over again.
     pub fn stop_live_view(&mut self) -> Result<(), String> {
         self.set_property(EVF_OUTPUT_DEVICE, 0)
@@ -141,6 +150,24 @@ impl Session {
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
+    }
+
+    /// Live view magnification: 1 (whole picture), 5 or 10, as EOS Utility
+    /// sends it (recorded 2026-10-29).
+    pub fn zoom(&mut self, level: u32) -> Result<(), String> {
+        self.operation(ZOOM, &[level]).map(|_| ())
+    }
+
+    /// Where the magnified area sits, in sensor pixels (EOS Utility moved it in
+    /// steps of 68 around 2716, 1856 on the R6 Mark III).
+    pub fn zoom_position(&mut self, x: u32, y: u32) -> Result<(), String> {
+        self.operation(ZOOM_POSITION, &[x, y]).map(|_| ())
+    }
+
+    /// Depth of field preview: the lens stops down to the set aperture.
+    /// The camera doesn't list this property, but EOS Utility sets it.
+    pub fn depth_of_field_preview(&mut self, on: bool) -> Result<(), String> {
+        self.set_property(DEPTH_OF_FIELD_PREVIEW, on as u32)
     }
 
     /// Reads (and drops) what the camera has to report. EOS Utility asks

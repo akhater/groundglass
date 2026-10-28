@@ -13,6 +13,8 @@
 //!   groundglass-cli <address> probe [--live] <path>...   (GET each /ccapi path, print the reply)
 //!   groundglass-cli <host> ptp-info   (PTP/IP, camera in "Connect to EOS Utility"; reads only)
 //!   groundglass-cli <host> ptp-live [seconds] [--save frame.jpg]   (PTP/IP live view speed)
+//!   groundglass-cli <host> ptp-zoom <dir>   (x1, x5, x10, DOF preview on/off; a frame of each in dir)
+//!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
 //! (milliseconds within 100 s) when it arrived. Point the camera at a clock
@@ -42,6 +44,8 @@ fn run(args: &[String]) -> Result<(), String> {
             let save = args.iter().position(|a| a == "--save").and_then(|i| args.get(i + 1));
             return ptp_live(address, Duration::from_secs(seconds), save);
         }
+        "ptp-zoom" => return ptp_zoom(address, args.get(2).ok_or("ptp-zoom needs a folder for the frames")?),
+        "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
         _ => {}
     }
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
@@ -169,12 +173,14 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
     let result = (|| {
         session.start_live_view()?;
         println!("live view started in {} ms", started.elapsed().as_millis());
-        let (mut frames, mut empty, mut bytes) = (0u32, 0u32, 0usize);
+        let (mut frames, mut empty, mut bytes, mut repeats) = (0u32, 0u32, 0usize, 0u32);
         let mut last = Vec::new();
         let pulling = Instant::now();
         let mut events_at = Instant::now();
         while pulling.elapsed() < length {
             match session.frame()? {
+                // A frame identical to the last is the camera repeating itself, not a new picture.
+                Some(jpeg) if jpeg == last => repeats += 1,
                 Some(jpeg) => {
                     frames += 1;
                     bytes += jpeg.len();
@@ -193,7 +199,7 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
         }
         let secs = pulling.elapsed().as_secs_f64();
         println!(
-            "{frames} frames in {secs:.1} s = {:.1} fps, average {} KB, {empty} not ready",
+            "{frames} new frames in {secs:.1} s = {:.1} fps, average {} KB, {empty} not ready, {repeats} repeats",
             frames as f64 / secs,
             bytes / frames.max(1) as usize / 1024
         );
@@ -208,6 +214,93 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
     let closed = session.close();
     println!("session closed: {closed:?}");
     result.and(stopped).and(closed)
+}
+
+/// Steps through x1, x5, x10, back to x1, then DOF preview on and off, saving
+/// a frame after each (`<dir>/1-x1.jpg` ...). Always restores x1, DOF off,
+/// live view output off, and closes the session.
+fn ptp_zoom(host: &str, dir: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        let grab = |session: &mut Session, name: &str| -> Result<(), String> {
+            // Let the camera settle, then keep the newest frame.
+            let settle = Instant::now();
+            let mut last = None;
+            while settle.elapsed() < Duration::from_millis(1500) {
+                if let Some(jpeg) = session.frame()? {
+                    last = Some(jpeg);
+                }
+            }
+            session.events()?;
+            let jpeg = last.ok_or_else(|| format!("no frame for {name}"))?;
+            let path = format!("{dir}/{name}.jpg");
+            std::fs::write(&path, &jpeg).map_err(|e| e.to_string())?;
+            println!("{name}: {} KB saved to {path}", jpeg.len() / 1024);
+            Ok(())
+        };
+        grab(&mut session, "1-x1")?;
+        session.zoom(5)?;
+        grab(&mut session, "2-x5")?;
+        session.zoom(10)?;
+        grab(&mut session, "3-x10")?;
+        session.zoom(1)?;
+        grab(&mut session, "4-x1-again")?;
+        session.depth_of_field_preview(true)?;
+        grab(&mut session, "5-dof-on")?;
+        session.depth_of_field_preview(false)?;
+        grab(&mut session, "6-dof-off")
+    })();
+    let restored = [
+        ("x1", session.zoom(1)),
+        ("DOF preview off", session.depth_of_field_preview(false)),
+        ("live view output off", session.stop_live_view()),
+    ];
+    for (what, outcome) in &restored {
+        println!("{what}: {outcome:?}");
+    }
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Five seconds with live view to us only, five with the camera's screen too
+/// (watch the camera), then x10 straight from x1 held three seconds. Always
+/// restores x1, live view output off, and closes the session.
+fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        let run = |session: &mut Session, length: Duration| -> Result<Option<Vec<u8>>, String> {
+            let started = Instant::now();
+            let mut last = None;
+            while started.elapsed() < length {
+                if let Some(jpeg) = session.frame()? {
+                    last = Some(jpeg);
+                }
+            }
+            session.events()?;
+            Ok(last)
+        };
+        session.start_live_view()?;
+        println!("live view to the computer only (2), 5 s: is the camera's screen off?");
+        run(&mut session, Duration::from_secs(5))?;
+        println!("camera screen too (3): {:?}", session.live_view_output(true));
+        run(&mut session, Duration::from_secs(5))?;
+        session.zoom(10)?;
+        println!("x10 from x1, 3 s");
+        let jpeg = run(&mut session, Duration::from_secs(3))?.ok_or("no frame at x10")?;
+        let path = format!("{dir}/7-x10-direct.jpg");
+        std::fs::write(&path, &jpeg).map_err(|e| e.to_string())?;
+        println!("x10: {} KB saved to {path}", jpeg.len() / 1024);
+        Ok(())
+    })();
+    println!("x1: {:?}", session.zoom(1));
+    println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
 }
 
 fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {
