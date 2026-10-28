@@ -20,7 +20,7 @@ export const stopLiveView = () => invoke<void>("stop_live_view");
 /** The newest live view frame as JPEG bytes. */
 export const frame = () => invoke<ArrayBuffer>("frame");
 
-/** Takes a photo with autofocus, like a full press of the shutter button. */
+/** Takes a photo without autofocus (focus is AF-ON's job), like a full press of the shutter button. */
 export const shoot = () => invoke<void>("shoot");
 
 /** Back-button focus: true on press, false on release. */
@@ -45,6 +45,9 @@ export const level = () => invoke<Level | null>("level");
 export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });
 export const readLut = (name: string) => invoke<string>("read_lut", { name });
+
+/** The camera can't answer this instant (e.g. a photo is being taken). */
+export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";
 
 /** Errors that restarting live view fixes, with no need to reconnect. */
 export function isRestartable(error: unknown): boolean {

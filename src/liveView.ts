@@ -24,6 +24,8 @@ export type LiveViewOptions = {
 };
 
 const RETRY_MS = 2000;
+/** While the camera takes a photo it sends no frames: ask again this often. */
+const BUSY_MS = 100;
 
 /** The previous run, so a new one starts only after the old one has stopped the camera. */
 let previousRun: Promise<void> = Promise.resolve();
@@ -49,7 +51,15 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
       let frames = 0;
       let since = performance.now();
       while (!signal.aborted) {
-        const jpeg = await camera.frame();
+        let jpeg: ArrayBuffer;
+        try {
+          jpeg = await camera.frame();
+        } catch (error) {
+          // Busy (a photo being taken): live view resumes by itself.
+          if (!camera.isBusy(error)) throw error;
+          await sleep(BUSY_MS, signal);
+          continue;
+        }
         const image = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
         renderer.draw(image, zebraPercent(), look(), peaking());
         image.close();

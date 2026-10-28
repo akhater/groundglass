@@ -47,7 +47,9 @@ fn frame(connection: State<Connection>) -> Result<Response, CameraError> {
 
 #[tauri::command(async)]
 fn shoot(connection: State<Connection>) -> Result<(), CameraError> {
-    connection.camera()?.shoot(true)
+    // No autofocus from the shutter: focus stays on AF-ON (back-button focus),
+    // as a camera with focus split from the shutter expects.
+    connection.camera()?.shoot(false)
 }
 
 /// Back-button focus: `true` on press, `false` on release.

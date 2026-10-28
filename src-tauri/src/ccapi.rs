@@ -34,8 +34,9 @@ pub enum CameraError {
     Unreachable(String),
     /// The camera's live view is off; starting it again fixes this.
     LiveViewOff,
-    /// "Device busy": the camera can't answer this instant, e.g. just after
-    /// live view starts. Asking again shortly fixes it.
+    /// "Device busy" or "During shooting or recording": the camera can't
+    /// answer this instant, e.g. just after live view starts or while a photo
+    /// is taken. Asking again shortly fixes it.
     Busy,
     /// The camera answered with an error.
     Refused(String),
@@ -325,7 +326,10 @@ fn read(mut response: ureq::http::Response<ureq::Body>) -> Result<Vec<u8>> {
                 .unwrap_or_default();
             if message.eq_ignore_ascii_case("live view not started") {
                 Err(CameraError::LiveViewOff)
-            } else if message.eq_ignore_ascii_case("device busy") {
+            } else if message.eq_ignore_ascii_case("device busy")
+                // While a photo is being taken (a slow shutter makes it long).
+                || message.eq_ignore_ascii_case("during shooting or recording")
+            {
                 Err(CameraError::Busy)
             } else {
                 Err(CameraError::Refused(format!("HTTP {status} {message}")))
