@@ -4,6 +4,7 @@ import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
+import { Composition, GUIDES, type Guide } from "./Composition";
 import { Level } from "./Level";
 import { pictureBox } from "./picture";
 import { ShootButton, useShoot } from "./ShootButton";
@@ -28,7 +29,7 @@ const PEAKING_CHOICES: { value: Peaking | "off"; label: string }[] = [
 ];
 
 /** The strip of choices open over the picture. */
-type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking";
+type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking" | "grid";
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -60,6 +61,9 @@ export default function App() {
   const exposure = useExposure(live);
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
+  const [guide, setGuide] = useState<Guide | "off">("off");
+  /** Which corner the triangle or spiral turns to, 0..3. */
+  const [guideFlip, setGuideFlip] = useState(0);
   const details = useLiveDetails(live);
   const tapFocus = useTapFocus(canvas);
 
@@ -122,6 +126,24 @@ export default function App() {
         />
       );
     }
+    if (picker === "grid") {
+      return (
+        <Strip
+          label="Grid"
+          choices={[{ value: "off", label: "Off" }, ...GUIDES]}
+          value={guide}
+          onPick={(value) => setGuide(value as Guide | "off")}
+          onClose={close}
+          extra={
+            (guide === "triangle" || guide === "spiral") && (
+              <button className="add" onClick={() => setGuideFlip((flip) => (flip + 1) % 4)}>
+                Flip
+              </button>
+            )
+          }
+        />
+      );
+    }
     if (picker === "peaking") {
       return (
         <Strip
@@ -179,11 +201,19 @@ export default function App() {
         {details && (
           <AfFrames frames={details.afFrames} box={canvas.current && pictureBox(canvas.current)} />
         )}
+        {live && guide !== "off" && (
+          <Composition guide={guide} flip={guideFlip} box={canvas.current && pictureBox(canvas.current)} />
+        )}
         {live && levelOn && <Level level={details?.level ?? null} />}
         {live && (
-          <button className="level-toggle" aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
-            Level
-          </button>
+          <div className="stage-tools">
+            <button aria-pressed={guide !== "off"} aria-expanded={picker === "grid"} onClick={() => toggle("grid")}>
+              Grid
+            </button>
+            <button aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
+              Level
+            </button>
+          </div>
         )}
         {errors && errors !== dismissed && (
           <button className="errors" onClick={() => setDismissed(errors)} title="Tap to hide">

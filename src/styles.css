@@ -648,10 +648,16 @@ button:disabled {
   transform: translateY(-50%);
 }
 
-.level-toggle {
+/* Grid and Level, over the top right of the picture. */
+.stage-tools {
   position: absolute;
   top: calc(10px + env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+}
+
+.stage-tools button {
   min-height: 36px;
   padding: 6px 12px;
   border: 0;
@@ -660,8 +666,24 @@ button:disabled {
   font-size: 0.85rem;
 }
 
-.level-toggle[aria-pressed="true"] {
+.stage-tools button[aria-pressed="true"] {
   color: var(--live);
+}
+
+/* Composition guides: thin light lines that stay thin however they are scaled. */
+.composition {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.composition line,
+.composition path {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.7);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
 }
 
 /* The camera's AF points, as it reports them: green once One-Shot holds focus,
