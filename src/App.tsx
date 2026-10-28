@@ -5,6 +5,7 @@ import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
+import type { Peaking } from "./render";
 import { Strip } from "./Strip";
 import { useLiveView } from "./useLiveView";
 import { lookLabel, useLooks } from "./useLooks";
@@ -14,9 +15,15 @@ const ADDRESSES_KEY = "groundglass.addresses";
 const OLD_ADDRESS_KEY = "groundglass.address";
 const ADDRESSES_KEPT = 10;
 const ZEBRA_LEVELS = [70, 80, 85, 90, 95, 98, 100];
+const PEAKING_CHOICES: { value: Peaking | "off"; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "mid", label: "Mid" },
+  { value: "high", label: "High" },
+];
 
 /** The strip of choices open over the picture. */
-type Picker = camera.ExposureSetting | "look" | "zebra";
+type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking";
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -38,9 +45,12 @@ export default function App() {
   // The frame loop reads this on every frame, so changing it needs no restart.
   const zebra = useRef<number | null>(null);
   zebra.current = zebraOn ? zebraPercent : null;
+  const [peakingChoice, setPeakingChoice] = useState<Peaking | "off">("off");
+  const peaking = useRef<Peaking | null>(null);
+  peaking.current = peakingChoice === "off" ? null : peakingChoice;
 
   const looks = useLooks();
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube });
+  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking });
   const live = status?.state === "live";
   const exposure = useExposure(live);
   const shot = useShoot(live);
@@ -100,6 +110,17 @@ export default function App() {
             setZebraOn(value !== "off");
             if (value !== "off") setZebraPercent(Number(value));
           }}
+          onClose={close}
+        />
+      );
+    }
+    if (picker === "peaking") {
+      return (
+        <Strip
+          label="Peaking"
+          choices={PEAKING_CHOICES}
+          value={peakingChoice}
+          onPick={(value) => setPeakingChoice(value as Peaking | "off")}
           onClose={close}
         />
       );
@@ -203,6 +224,13 @@ export default function App() {
             value={zebraOn ? `${zebraPercent}%` : "Off"}
             open={picker === "zebra"}
             onClick={() => toggle("zebra")}
+          />
+          <Chip
+            kind="peaking"
+            label="Peaking"
+            value={PEAKING_CHOICES.find((c) => c.value === peakingChoice)!.label}
+            open={picker === "peaking"}
+            onClick={() => toggle("peaking")}
           />
         </div>
         <div className="actions">

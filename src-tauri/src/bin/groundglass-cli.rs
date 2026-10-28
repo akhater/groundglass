@@ -3,6 +3,8 @@
 //!   groundglass-cli <address> info
 //!   groundglass-cli <address> live [seconds] [--display-off] [--save frame.jpg] [--stamp dir]
 //!   groundglass-cli <address> stop
+//!   groundglass-cli <address> get <iso|av|tv>
+//!   groundglass-cli <address> set <iso|av|tv> <value>
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
 //! (milliseconds within 100 s) when it arrived. Point the camera at a clock
@@ -10,7 +12,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use groundglass_lib::ccapi::Camera;
+use groundglass_lib::ccapi::{Camera, ExposureSetting};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -22,7 +24,7 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (Some(address), Some(command)) = (args.first(), args.get(1)) else {
-        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop".into());
+        return Err("usage: groundglass-cli <address> info | live [seconds] [--display-off] [--save file] | stop | get <setting> | set <setting> <value>".into());
     };
     let (camera, info) = Camera::connect(address).map_err(|e| format!("{e:?}"))?;
     println!("{} (firmware {})", info.model, info.firmware);
@@ -35,7 +37,25 @@ fn run(args: &[String]) -> Result<(), String> {
             let option = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
             live(&camera, Duration::from_secs(seconds), display_on, option("--save"), option("--stamp"))
         }
+        "get" => {
+            let state = camera.exposure_setting(setting(args.get(2))?).map_err(|e| format!("{e:?}"))?;
+            println!("{} (choices: {})", state.value, state.choices.join(" "));
+            Ok(())
+        }
+        "set" => {
+            let value = args.get(3).ok_or("set needs a value")?;
+            camera.set_exposure_setting(setting(args.get(2))?, value).map_err(|e| format!("{e:?}"))
+        }
         other => Err(format!("unknown command: {other}")),
+    }
+}
+
+fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {
+    match name.map(String::as_str) {
+        Some("iso") => Ok(ExposureSetting::Iso),
+        Some("av") => Ok(ExposureSetting::Av),
+        Some("tv") => Ok(ExposureSetting::Tv),
+        _ => Err("expected iso, av or tv".into()),
     }
 }
 

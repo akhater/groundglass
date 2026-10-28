@@ -2,7 +2,7 @@
 // Any failure restarts live view; a lost camera is retried until stopped.
 import * as camera from "./camera";
 import type { Cube } from "./cube";
-import { createRenderer } from "./render";
+import { createRenderer, type Peaking } from "./render";
 
 export type Status =
   | { state: "connecting" }
@@ -17,6 +17,8 @@ export type LiveViewOptions = {
   zebraPercent: () => number | null;
   /** Read on every frame too. Null = the camera's picture as it is. */
   look: () => Cube | null;
+  /** Read on every frame too. Null = peaking off. */
+  peaking: () => Peaking | null;
   onStatus: (status: Status) => void;
   signal: AbortSignal;
 };
@@ -33,7 +35,7 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let connected = false;
   while (!signal.aborted) {
@@ -49,7 +51,7 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, onSt
       while (!signal.aborted) {
         const jpeg = await camera.frame();
         const image = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
-        renderer.draw(image, zebraPercent(), look());
+        renderer.draw(image, zebraPercent(), look(), peaking());
         image.close();
         frames++;
         const now = performance.now();

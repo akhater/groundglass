@@ -91,7 +91,7 @@ button:disabled {
   margin-inline: auto;
 }
 
-/* Tall: ISO, aperture and shutter on one row, look and zebra on the next. */
+/* Tall: ISO, aperture and shutter on one row, look, zebra and peaking on the next. */
 .chips {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -99,13 +99,8 @@ button:disabled {
   gap: 8px;
 }
 
-.chip.exposure,
-.chip.zebra {
+.chip {
   grid-column: span 2;
-}
-
-.chip.look {
-  grid-column: span 4;
 }
 
 .actions {
@@ -128,16 +123,12 @@ button:disabled {
     padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
       calc(12px + env(safe-area-inset-bottom)) 12px;
   }
-  /* Two columns: ISO and aperture, shutter and zebra, then the look. */
+  /* Two columns: ISO and aperture, shutter and look, zebra and peaking. */
   .chips {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .chip.exposure,
-  .chip.zebra {
+  .chip {
     grid-column: span 1;
-  }
-  .chip.look {
-    grid-column: 1 / -1;
   }
 }
 
