@@ -4,12 +4,15 @@ import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { ShootButton, useShoot } from "./ShootButton";
-import { remember, remembered } from "./storage";
+import { remembered, rememberedList, rememberFirst } from "./storage";
 import { Strip } from "./Strip";
 import { useLiveView } from "./useLiveView";
 import { lookLabel, useLooks } from "./useLooks";
 
-const ADDRESS_KEY = "groundglass.address";
+const ADDRESSES_KEY = "groundglass.addresses";
+/** Before the list, only the last address was kept, under this key. */
+const OLD_ADDRESS_KEY = "groundglass.address";
+const ADDRESSES_KEPT = 10;
 const ZEBRA_LEVELS = [70, 80, 85, 90, 95, 98, 100];
 
 /** The strip of choices open over the picture. */
@@ -17,7 +20,12 @@ type Picker = camera.ExposureSetting | "look" | "zebra";
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [address, setAddress] = useState(() => remembered(ADDRESS_KEY) ?? "");
+  const [recent, setRecent] = useState(() => {
+    const list = rememberedList(ADDRESSES_KEY);
+    const old = remembered(OLD_ADDRESS_KEY);
+    return list.length === 0 && old ? [old] : list;
+  });
+  const [address, setAddress] = useState(() => recent[0] ?? "");
   // On by default: with the camera's screen off, its own controls are locked too.
   const [cameraDisplayOn, setCameraDisplayOn] = useState(true);
   const [running, setRunning] = useState(false);
@@ -147,11 +155,14 @@ export default function App() {
             running={running}
             address={address}
             onAddress={setAddress}
+            recent={recent}
             cameraDisplayOn={cameraDisplayOn}
             onCameraDisplay={setCameraDisplayOn}
             status={status}
             onStart={() => {
-              remember(ADDRESS_KEY, address);
+              const used = address.trim();
+              setAddress(used);
+              setRecent(rememberFirst(ADDRESSES_KEY, recent, used, ADDRESSES_KEPT));
               setRunning(true);
             }}
             onStop={() => {

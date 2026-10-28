@@ -522,3 +522,42 @@ button:disabled {
     height: 64px;
   }
 }
+
+.address-field {
+  display: flex;
+  gap: 8px;
+}
+
+.address-field input {
+  flex: 1;
+}
+
+.address-field button {
+  width: 48px;
+  font-size: 1.1rem;
+}
+
+.recent {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.panel .recent button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  font-weight: 400;
+  text-align: left;
+}
+
+.panel .recent button + button {
+  border-top: 1px solid var(--line);
+}
+
+.panel .recent button[aria-selected="true"] {
+  color: var(--accent);
+}

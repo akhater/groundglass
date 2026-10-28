@@ -1,11 +1,14 @@
 // The camera's address and Start / Stop. Before Start it sits in the middle of
 // the picture; while live it opens from the status badge at the top.
+import { useState } from "react";
 import type { Status } from "./liveView";
 
 type Props = {
   running: boolean;
   address: string;
   onAddress: (address: string) => void;
+  /** Addresses used lately, newest first. */
+  recent: string[];
   cameraDisplayOn: boolean;
   onCameraDisplay: (on: boolean) => void;
   status: Status | null;
@@ -14,6 +17,7 @@ type Props = {
 };
 
 export function Connection(props: Props) {
+  const [listOpen, setListOpen] = useState(false);
   const screenToggle = (
     <label className="toggle">
       <input
@@ -47,13 +51,44 @@ export function Connection(props: Props) {
       }}
     >
       <h1>Groundglass</h1>
-      <input
-        value={props.address}
-        onChange={(e) => props.onAddress(e.target.value)}
-        placeholder="Camera address, e.g. 192.168.1.2:8080"
-        aria-label="Camera address"
-        inputMode="url"
-      />
+      <div className="address-field">
+        <input
+          value={props.address}
+          onChange={(e) => props.onAddress(e.target.value)}
+          placeholder="Camera address, e.g. 192.168.1.2:8080"
+          aria-label="Camera address"
+          inputMode="url"
+        />
+        {props.recent.length > 0 && (
+          <button
+            type="button"
+            className="secondary"
+            aria-label="Recent cameras"
+            aria-expanded={listOpen}
+            onClick={() => setListOpen((open) => !open)}
+          >
+            ▾
+          </button>
+        )}
+      </div>
+      {listOpen && (
+        <div className="recent" role="listbox" aria-label="Recent cameras">
+          {props.recent.map((address) => (
+            <button
+              key={address}
+              type="button"
+              role="option"
+              aria-selected={address === props.address}
+              onClick={() => {
+                props.onAddress(address);
+                setListOpen(false);
+              }}
+            >
+              {address}
+            </button>
+          ))}
+        </div>
+      )}
       <button type="submit" className="primary" disabled={!props.address.trim()}>
         Start
       </button>
