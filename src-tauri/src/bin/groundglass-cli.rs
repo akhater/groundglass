@@ -337,6 +337,7 @@ fn ptp_level(host: &str, length: Duration, dir: &str) -> Result<(), String> {
     let mut session = Session::open(host, Duration::from_secs(90))?;
     let result = (|| {
         session.start_live_view()?;
+        println!("asking for all info groups (0x913d 0xfff): {:?}", session.request_info_groups(0xfff));
         let started = Instant::now();
         let mut printed = Instant::now() - Duration::from_secs(1);
         let mut saved = false;
@@ -363,7 +364,22 @@ fn ptp_level(host: &str, length: Duration, dir: &str) -> Result<(), String> {
                     }
                     _ => println!("{:5.1}s 0x1d: not in this frame", started.elapsed().as_secs_f32()),
                 }
-                session.events()?;
+                // Report kinds other than the once-a-second allowed-values list, in case the level comes there.
+                let events = session.event_data()?;
+                let mut rest = &events[..];
+                while rest.len() >= 8 {
+                    let size = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+                    let kind = u32::from_le_bytes(rest[4..8].try_into().unwrap());
+                    if kind == 0 || size < 8 || size > rest.len() {
+                        break;
+                    }
+                    if kind != 0xc18a {
+                        let body = &rest[8..size];
+                        let hex: String = body.iter().take(40).map(|x| format!("{x:02x}")).collect();
+                        println!("        report 0x{kind:x} ({} bytes): {hex}", body.len());
+                    }
+                    rest = &rest[size..];
+                }
             }
         }
         Ok(())

@@ -28,6 +28,7 @@ const SET_REMOTE_MODE: u16 = 0x9114;
 const SET_EVENT_MODE: u16 = 0x9115;
 const GET_EVENT_DATA: u16 = 0x9116;
 const GET_VIEWFINDER_DATA: u16 = 0x9153;
+const SET_REQUEST_OLC_INFO_GROUP: u16 = 0x913d;
 const DO_AF: u16 = 0x9154;
 const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
@@ -162,6 +163,13 @@ impl Session {
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
             other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
         }
+    }
+
+    /// Asks the camera to report these groups of shooting information (a bit
+    /// mask). EOS Utility sends 0xfff after opening; libgphoto2 names the
+    /// operation SetRequestOLCInfoGroup. Being tried for the level.
+    pub fn request_info_groups(&mut self, groups: u32) -> Result<(), String> {
+        self.operation(SET_REQUEST_OLC_INFO_GROUP, &[groups]).map(|_| ())
     }
 
     /// Back-button focus: DoAf (0x9154) while held, AfCancel (0x9160) on
