@@ -553,40 +553,99 @@ button:disabled {
   color: var(--accent);
 }
 
-/* The camera's level: a line through the middle of the picture. */
+/* The camera's level: a roll scale along the bottom, a tilt scale up the side. */
 .level {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
   pointer-events: none;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.level .horizon,
-.level span {
-  grid-area: 1 / 1;
+.scale {
+  position: absolute;
+  border-radius: 3px;
+  background: var(--scrim);
 }
 
-.level .horizon {
-  width: 60%;
-  height: 2px;
+/* The middle mark: level. */
+.scale::before {
+  content: "";
+  position: absolute;
+  background: var(--muted);
+}
+
+.scale i {
+  position: absolute;
+  border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 2px #000;
-  transition: transform 0.2s;
+  transition: left 0.2s, top 0.2s;
 }
 
-.level.flat .horizon {
+.scale.flat i {
   background: var(--live);
 }
 
-.level span {
-  align-self: end;
-  margin-bottom: 12px;
-  padding: 2px 10px;
-  border-radius: 12px;
+.scale.roll {
+  left: 30%;
+  right: 30%;
+  bottom: 18px;
+  height: 6px;
+}
+
+.scale.roll::before {
+  left: calc(50% - 1px);
+  top: -4px;
+  width: 2px;
+  height: 14px;
+}
+
+.scale.roll i {
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+}
+
+.scale.pitch {
+  top: 30%;
+  bottom: 30%;
+  right: 18px;
+  width: 6px;
+}
+
+.scale.pitch::before {
+  top: calc(50% - 1px);
+  left: -4px;
+  width: 14px;
+  height: 2px;
+}
+
+.scale.pitch i {
+  left: -3px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+}
+
+.roll-value,
+.pitch-value {
+  position: absolute;
+  padding: 1px 6px;
+  border-radius: 8px;
   background: var(--scrim);
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
+}
+
+.roll-value {
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+}
+
+.pitch-value {
+  right: 30px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .level-toggle {
