@@ -204,7 +204,9 @@ impl Camera {
         self.live.load(Ordering::Relaxed)
     }
 
-    /// The newest live view frame, as JPEG bytes.
+    /// The newest live view frame, as JPEG bytes. Asked for one at a time: the
+    /// camera's push stream (`/shooting/liveview/scroll`) was tried and measured
+    /// the same lag, about 0.3 s glass to PC (2026-10-28), so it isn't used.
     pub fn frame(&self) -> Result<Vec<u8>> {
         for wait in BUSY_RETRY_MS {
             match self.get("/shooting/liveview/flip") {
@@ -213,31 +215,6 @@ impl Camera {
             }
         }
         self.get("/shooting/liveview/flip")
-    }
-
-    /// Opens the camera's push stream of live view frames. Live view must be started.
-    pub fn open_stream(&self) -> Result<FrameStream> {
-        let started = Instant::now();
-        let path = "/ver100/shooting/liveview/scroll";
-        let response = self
-            .agent
-            .get(format!("{}{path}", self.root))
-            .config()
-            .timeout_global(None)
-            .timeout_recv_response(Some(Duration::from_secs(10)))
-            .build()
-            .call()
-            .map_err(unreachable);
-        let result = match response {
-            Ok(response) if response.status().is_success() => Ok(FrameStream {
-                reader: response.into_body().into_reader(),
-                pending: Vec::new(),
-            }),
-            Ok(response) => read(response).and(Err(CameraError::Refused("stream refused".into()))),
-            Err(error) => Err(error),
-        };
-        log("GET", path, "", started, &result);
-        result
     }
 
     fn get(&self, path: &str) -> Result<Vec<u8>> {
@@ -265,47 +242,6 @@ impl Camera {
         log(method, path, json.unwrap_or(""), started, &result);
         result
     }
-}
-
-/// Live view frames pushed by the camera as it makes them
-/// (`/shooting/liveview/scroll`). Each frame is one JPEG, found by its start
-/// and end markers: entropy-coded JPEG data never contains `FF D9`.
-pub struct FrameStream {
-    reader: ureq::BodyReader<'static>,
-    pending: Vec<u8>,
-}
-
-impl FrameStream {
-    /// Blocks until the camera sends the next frame.
-    pub fn next_frame(&mut self) -> Result<Vec<u8>> {
-        let mut chunk = [0u8; 64 * 1024];
-        loop {
-            if let Some(frame) = take_jpeg(&mut self.pending) {
-                return Ok(frame);
-            }
-            if self.pending.len() as u64 > MAX_FRAME_BYTES {
-                self.pending.clear(); // no end marker in sight: resync on the next frame
-            }
-            let read = std::io::Read::read(&mut self.reader, &mut chunk)
-                .map_err(|e| CameraError::Unreachable(e.to_string()))?;
-            if read == 0 {
-                return Err(CameraError::LiveViewOff);
-            }
-            self.pending.extend_from_slice(&chunk[..read]);
-        }
-    }
-}
-
-/// Removes and returns the first complete JPEG in `buffer`, dropping anything before it.
-fn take_jpeg(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
-    let find = |from: usize, marker: [u8; 2]| {
-        buffer.get(from..)?.windows(2).position(|w| w == marker).map(|i| i + from)
-    };
-    let start = find(0, [0xFF, 0xD8])?;
-    let end = find(start + 2, [0xFF, 0xD9])? + 2;
-    let frame = buffer[start..end].to_vec();
-    buffer.drain(..end);
-    Some(frame)
 }
 
 /// Every request on stderr, except successful frames: those are counted.
@@ -366,17 +302,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{root_url, take_jpeg};
-
-    #[test]
-    fn take_jpeg_splits_a_stream_into_frames() {
-        let mut stream = vec![0x00, 0xFF, 0xD8, 1, 2, 0xFF, 0xD9, 0xFF, 0xD8, 3];
-        assert_eq!(take_jpeg(&mut stream), Some(vec![0xFF, 0xD8, 1, 2, 0xFF, 0xD9]));
-        assert_eq!(take_jpeg(&mut stream), None, "second frame is not complete yet");
-        stream.extend_from_slice(&[0xFF, 0xD9]);
-        assert_eq!(take_jpeg(&mut stream), Some(vec![0xFF, 0xD8, 3, 0xFF, 0xD9]));
-        assert!(stream.is_empty());
-    }
+    use super::root_url;
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
