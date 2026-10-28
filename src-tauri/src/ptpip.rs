@@ -116,6 +116,9 @@ impl Session {
         parse_device_info(&data)
     }
 
+    /// Ends the session. On the R6 Mark III (2026-10-29), live view output off
+    /// then CloseSession gave the camera its screen back; open-eos-control's
+    /// USB hand-back (remote mode 0, 1, event mode 0) left the screen off.
     pub fn close(mut self) -> Result<(), String> {
         self.operation(CLOSE_SESSION, &[]).map(|_| ())
     }
@@ -139,9 +142,10 @@ impl Session {
         self.set_property(EVF_OUTPUT_DEVICE, if camera_screen_too { 3 } else { 2 })
     }
 
-    /// Live view output back off; the camera's own screen takes over again.
+    /// Live view back to the camera's own screen only (1). Output "none" (0)
+    /// sometimes left the R6 Mark III's screen off after the session (2026-10-29).
     pub fn stop_live_view(&mut self) -> Result<(), String> {
-        self.set_property(EVF_OUTPUT_DEVICE, 0)
+        self.set_property(EVF_OUTPUT_DEVICE, 1)
     }
 
     /// The newest live view frame, or None while the camera has none ready.

@@ -14,6 +14,7 @@
 //!   groundglass-cli <host> ptp-info   (PTP/IP, camera in "Connect to EOS Utility"; reads only)
 //!   groundglass-cli <host> ptp-live [seconds] [--save frame.jpg]   (PTP/IP live view speed)
 //!   groundglass-cli <host> ptp-zoom <dir>   (x1, x5, x10, DOF preview on/off; a frame of each in dir)
+//!   groundglass-cli <host> ptp-level <dir>   (15 s: block 0x1d twice a second, tilt the camera; saves a frame and block 0x11)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
@@ -47,6 +48,10 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "ptp-zoom" => return ptp_zoom(address, args.get(2).ok_or("ptp-zoom needs a folder for the frames")?),
         "ptp-screen" => return ptp_screen(address, args.get(2).ok_or("ptp-screen needs a folder for the frames")?),
+        "ptp-level" => {
+            let dir = args.get(2).ok_or("ptp-level needs a folder for the saved frame")?;
+            return ptp_level(address, Duration::from_secs(15), dir);
+        }
         "ptp-watch" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(25);
             return ptp_watch(address, Duration::from_secs(seconds));
@@ -303,6 +308,67 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     })();
     println!("x1: {:?}", session.zoom(1));
     println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed)
+}
+
+/// Prints block 0x1d (thought to be the level: two values, raw and as
+/// signed 16-bit) twice a second for `length` while the camera is tilted,
+/// and saves one frame with its block 0x11 (thought to be the histogram) to
+/// `dir` to check against the picture.
+fn ptp_level(host: &str, length: Duration, dir: &str) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    fn block(data: &[u8], wanted: u32) -> Option<&[u8]> {
+        let mut rest = data;
+        while rest.len() >= 8 {
+            let size = u32::from_le_bytes(rest[..4].try_into().ok()?) as usize;
+            let kind = u32::from_le_bytes(rest[4..8].try_into().ok()?);
+            if size < 8 || size > rest.len() {
+                return None;
+            }
+            if kind == wanted {
+                return Some(&rest[8..size]);
+            }
+            rest = &rest[size..];
+        }
+        None
+    }
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| {
+        session.start_live_view()?;
+        let started = Instant::now();
+        let mut printed = Instant::now() - Duration::from_secs(1);
+        let mut saved = false;
+        while started.elapsed() < length {
+            let Some(data) = session.viewfinder_data()? else { continue };
+            if !saved && let (Some(jpeg), Some(histogram)) = (block(&data, 0x01), block(&data, 0x11)) {
+                std::fs::write(format!("{dir}/frame.jpg"), jpeg).map_err(|e| e.to_string())?;
+                std::fs::write(format!("{dir}/block11.bin"), histogram).map_err(|e| e.to_string())?;
+                println!("saved a frame and its block 0x11 ({} bytes) to {dir}", histogram.len());
+                saved = true;
+            }
+            if printed.elapsed() >= Duration::from_millis(500) {
+                printed = Instant::now();
+                match block(&data, 0x1d) {
+                    Some(b) if b.len() >= 8 => {
+                        let a = u32::from_le_bytes(b[..4].try_into().unwrap());
+                        let c = u32::from_le_bytes(b[4..8].try_into().unwrap());
+                        println!(
+                            "{:5.1}s 0x1d: {a:#06x} {c:#06x}  as signed: {} {}",
+                            started.elapsed().as_secs_f32(),
+                            a as u16 as i16,
+                            c as u16 as i16
+                        );
+                    }
+                    _ => println!("{:5.1}s 0x1d: not in this frame", started.elapsed().as_secs_f32()),
+                }
+                session.events()?;
+            }
+        }
+        Ok(())
+    })();
+    println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
     result.and(closed)
