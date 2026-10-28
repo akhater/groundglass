@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "groundglass"
-version = "26.44.1"
+version = "26.44.2"
 dependencies = [
  "serde",
  "serde_json",
