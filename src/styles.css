@@ -664,7 +664,8 @@ button:disabled {
   color: var(--live);
 }
 
-/* The camera's AF frames, as it reports them: green once focus is held, blue in Servo. */
+/* The camera's AF frames, as it reports them: green once One-Shot holds focus,
+   blue while Servo tracks, the whole AF area as a faint outline. */
 .af-frame {
   position: absolute;
   border: 2px solid #fff;
@@ -677,6 +678,11 @@ button:disabled {
   border-color: var(--live);
 }
 
-.af-frame.servo {
+.af-frame.tracking {
   border-color: #4aa8ff;
+}
+
+.af-frame.area {
+  border: 1px dashed rgb(255 255 255 / 0.35);
+  box-shadow: none;
 }

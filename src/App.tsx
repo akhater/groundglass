@@ -177,11 +177,7 @@ export default function App() {
           />
         )}
         {details && (
-          <AfFrames
-            frames={details.afFrames}
-            box={canvas.current && pictureBox(canvas.current)}
-            servo={exposure.states.afoperation?.value === "servo"}
-          />
+          <AfFrames frames={details.afFrames} box={canvas.current && pictureBox(canvas.current)} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} />}
         {live && (

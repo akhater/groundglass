@@ -119,8 +119,7 @@ fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {
         Some("iso") => Ok(ExposureSetting::Iso),
         Some("av") => Ok(ExposureSetting::Av),
         Some("tv") => Ok(ExposureSetting::Tv),
-        Some("afoperation") => Ok(ExposureSetting::AfOperation),
-        _ => Err("expected iso, av, tv or afoperation".into()),
+        _ => Err("expected iso, av or tv".into()),
     }
 }
 

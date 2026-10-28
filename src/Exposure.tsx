@@ -8,9 +8,6 @@ export const SETTINGS: { key: camera.ExposureSetting; label: string }[] = [
   { key: "tv", label: "Shutter" },
 ];
 
-/** Read with them: the AF mode, for the AF frame's colour (blue in Servo). */
-const READ: camera.ExposureSetting[] = [...SETTINGS.map((s) => s.key), "afoperation"];
-
 /** Re-read this often, so changes made on the camera's dials show up. */
 const REFRESH_MS = 4000;
 
@@ -22,7 +19,7 @@ export function useExposure(live: boolean) {
 
   async function refresh() {
     const next: States = {};
-    for (const key of READ) {
+    for (const { key } of SETTINGS) {
       try {
         next[key] = await camera.exposureSetting(key);
       } catch {

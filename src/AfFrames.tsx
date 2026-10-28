@@ -1,16 +1,14 @@
-// The camera's AF frames over the picture, coloured once it holds focus:
-// green in One-Shot, blue in Servo, as on the camera.
+// The camera's AF frames over the picture, as on the camera: green once
+// One-Shot holds focus, blue while Servo tracks, the AF area faint.
 import type * as camera from "./camera";
 import type { Box } from "./picture";
 
-type Props = { frames: camera.AfFrame[]; box: Box | null; servo: boolean };
-
-export function AfFrames({ frames, box, servo }: Props) {
+export function AfFrames({ frames, box }: { frames: camera.AfFrame[]; box: Box | null }) {
   if (!box) return null;
   return frames.map((frame, i) => (
     <div
       key={i}
-      className={`af-frame ${frame.focused ? (servo ? "servo" : "focused") : ""}`}
+      className={`af-frame ${frame.state}`}
       style={{
         left: box.left + frame.x * box.width,
         top: box.top + frame.y * box.height,

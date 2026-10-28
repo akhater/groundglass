@@ -50,16 +50,14 @@ pub struct CameraInfo {
     pub firmware: String,
 }
 
-/// The shooting settings the app reads and sets: exposure, and the AF mode
-/// (One-Shot or Servo, for the AF frame's colour). Paths as open-eos-control
-/// uses them (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
+/// The exposure settings the app shows. Paths as open-eos-control uses them
+/// (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
 #[derive(Clone, Copy, Debug, serde::Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExposureSetting {
     Iso,
     Av,
     Tv,
-    AfOperation,
 }
 
 impl ExposureSetting {
@@ -68,7 +66,6 @@ impl ExposureSetting {
             Self::Iso => "/shooting/settings/iso",
             Self::Av => "/shooting/settings/av",
             Self::Tv => "/shooting/settings/tv",
-            Self::AfOperation => "/shooting/settings/afoperation",
         }
     }
 }
@@ -87,8 +84,30 @@ pub struct AfFrame {
     pub y: f32,
     pub width: f32,
     pub height: f32,
-    /// The camera holds focus on it.
-    pub focused: bool,
+    pub state: AfState,
+}
+
+/// What an AF frame shows, from its `status` as the R6 Mark III sends it
+/// (2026-10-28): 48 an AF point waiting, 17 One-Shot holding focus, 20 Servo
+/// tracking, 32 the whole AF area while Servo runs. Others aren't known yet.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AfState {
+    Waiting,
+    Focused,
+    Tracking,
+    Area,
+}
+
+impl AfState {
+    fn from_status(status: Option<u64>) -> Self {
+        match status {
+            Some(17) => Self::Focused,
+            Some(20) => Self::Tracking,
+            Some(32) => Self::Area,
+            _ => Self::Waiting,
+        }
+    }
 }
 
 /// What comes with live view besides the picture, read a few times a second.
@@ -98,10 +117,6 @@ pub struct LiveDetails {
     pub level: Option<Level>,
     pub af_frames: Vec<AfFrame>,
 }
-
-/// AF frame `status` once focus is locked; 48 while waiting (R6 Mark III,
-/// 2026-10-28). Other values, e.g. a failed focus, aren't known yet.
-const AF_FOCUSED: u64 = 17;
 
 #[derive(Serialize)]
 pub struct SettingState {
@@ -346,7 +361,7 @@ fn af_frames_from(details: &[u8]) -> Vec<AfFrame> {
                 y: ((frame["y"].as_f64()? - top) / height) as f32,
                 width: (frame["width"].as_f64()? / width) as f32,
                 height: (frame["height"].as_f64()? / height) as f32,
-                focused: frame["status"].as_u64() == Some(AF_FOCUSED),
+                state: AfState::from_status(frame["status"].as_u64()),
             })
         })
         .collect()
@@ -431,7 +446,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AfFrame, Level, af_frames_from, focus_point, level_from, root_url};
+    use super::{AfFrame, AfState, Level, af_frames_from, focus_point, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -467,13 +482,16 @@ mod tests {
 
     #[test]
     fn af_frames_are_fractions_of_the_picture() {
-        // As the R6 Mark III reported a locked frame (2026-10-28), simplified sizes.
-        let details = br#"{"liveviewdata":{"afframe":[{"status":17,"select":1,"x":3480,"y":0,"width":696,"height":464},{"status":48,"select":0,"x":0,"y":2320,"width":696,"height":464}],"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960}}}"#;
+        // Statuses as the R6 Mark III reported them (2026-10-28), simplified sizes.
+        let details = br#"{"liveviewdata":{"afframe":[{"status":17,"select":1,"x":3480,"y":0,"width":696,"height":464},{"status":48,"select":0,"x":0,"y":2320,"width":696,"height":464},{"status":32,"select":1,"x":0,"y":0,"width":6960,"height":4640},{"status":20,"select":1,"x":0,"y":0,"width":696,"height":464}],"image":{"positionx":0,"positiony":0,"positionheight":4640,"positionwidth":6960}}}"#;
+        let frame = |x, y, width, height, state| AfFrame { x, y, width, height, state };
         assert_eq!(
             af_frames_from(details),
             vec![
-                AfFrame { x: 0.5, y: 0.0, width: 0.1, height: 0.1, focused: true },
-                AfFrame { x: 0.0, y: 0.5, width: 0.1, height: 0.1, focused: false },
+                frame(0.5, 0.0, 0.1, 0.1, AfState::Focused),
+                frame(0.0, 0.5, 0.1, 0.1, AfState::Waiting),
+                frame(0.0, 0.0, 1.0, 1.0, AfState::Area),
+                frame(0.0, 0.0, 0.1, 0.1, AfState::Tracking),
             ]
         );
         assert_eq!(af_frames_from(br#"{"liveviewdata":{"afframe":[]}}"#), vec![]);

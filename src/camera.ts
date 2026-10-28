@@ -27,7 +27,7 @@ export const shoot = () => invoke<void>("shoot");
 export const autofocus = (held: boolean) => invoke<void>("autofocus", { held });
 
 /** Mirrors `ccapi::ExposureSetting`. */
-export type ExposureSetting = "iso" | "av" | "tv" | "afoperation";
+export type ExposureSetting = "iso" | "av" | "tv";
 /** `choices` is empty when the shooting mode sets the value (e.g. aperture in Tv). */
 export type SettingState = { value: string; choices: string[] };
 
@@ -41,8 +41,10 @@ export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_p
 
 /** Mirrors `ccapi::Level`: degrees from level. */
 export type Level = { roll: number; pitch: number };
+/** Mirrors `ccapi::AfState`. */
+export type AfState = "waiting" | "focused" | "tracking" | "area";
 /** Mirrors `ccapi::AfFrame`: fractions of the picture. */
-export type AfFrame = { x: number; y: number; width: number; height: number; focused: boolean };
+export type AfFrame = { x: number; y: number; width: number; height: number; state: AfState };
 /** Mirrors `ccapi::LiveDetails`. */
 export type LiveDetails = { level: Level | null; afFrames: AfFrame[] };
 /** The level and AF frames, while live. */
