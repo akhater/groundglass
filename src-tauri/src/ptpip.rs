@@ -8,10 +8,13 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 const PORT: u16 = 15740;
+/// 1.0, as Canon's EOS Utility sends it to the R6 Mark III (recorded 2026-10-29).
 const PROTOCOL_VERSION: u32 = 0x0001_0000;
 /// The camera pairs with this GUID and name, and reconnects without asking as
-/// long as both stay the same.
-const GUID: [u8; 16] = *b"Groundglass-v1\0\0";
+/// long as both stay the same. A random UUID, generated once.
+const GUID: [u8; 16] = [
+    0xd5, 0xca, 0x31, 0x78, 0xf1, 0x48, 0x4b, 0xee, 0xb9, 0x64, 0xe2, 0xcb, 0xa3, 0x3a, 0xe3, 0x61,
+];
 const NAME: &str = "Groundglass";
 /// Packets larger than this are refused (live view frames are well under).
 const MAX_PACKET: usize = 16 << 20;
