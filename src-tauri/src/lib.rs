@@ -76,6 +76,12 @@ fn exposure_setting(setting: ExposureSetting, connection: State<Connection>) -> 
     connection.camera()?.exposure_setting(setting)
 }
 
+/// The shooting mode as the dial names it ("Av"), None where the camera doesn't say.
+#[tauri::command(async)]
+fn shooting_mode(connection: State<Connection>) -> Result<Option<String>, CameraError> {
+    connection.camera()?.shooting_mode()
+}
+
 #[tauri::command(async)]
 fn set_exposure_setting(
     setting: ExposureSetting,
@@ -155,6 +161,7 @@ pub fn run() {
             shoot,
             autofocus,
             exposure_setting,
+            shooting_mode,
             set_exposure_setting,
             expose_to_the_right,
             live_details,

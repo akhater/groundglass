@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { Setting, Tool } from "./Controls";
-import { FocusButton, SETTINGS, useExposure } from "./Exposure";
+import { FocusButton, SETTINGS, setByCamera, setByCameraNote, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
 import { Composition, GuideArt, GUIDES, TURNING, type Guide } from "./Composition";
 import { Crop, CropArt, cropBox, RATIOS, type Ratio } from "./Crop";
@@ -25,6 +25,8 @@ import { useLiveView } from "./useLiveView";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
 
+/** How long a note shows. */
+const NOTE_MS = 2500;
 const ADDRESSES_KEY = "groundglass.addresses";
 /** Before the list, only the last address was kept, under this key. */
 const OLD_ADDRESS_KEY = "groundglass.address";
@@ -75,7 +77,9 @@ export default function App() {
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
-  const ettr = useEttr(live, exposure.states, exposure.refresh);
+  const ettr = useEttr(live, exposure.states, exposure.mode, exposure.refresh);
+  /** A one-line answer to a tap, e.g. why a setting can't be changed now; it goes by itself. */
+  const [note, setNote] = useState("");
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
   const [histogramOn, setHistogramOn] = useState(false);
@@ -104,6 +108,12 @@ export default function App() {
     setConnectionOpen(false);
     setPicker((open) => (open === next ? null : next));
   };
+
+  useEffect(() => {
+    if (!note) return;
+    const timer = window.setTimeout(() => setNote(""), NOTE_MS);
+    return () => window.clearTimeout(timer);
+  }, [note]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -274,10 +284,16 @@ export default function App() {
           <Composition guide={guide} rotation={guideRotation + turns} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} box={picture} />}
-        {errors && errors !== dismissed && (
+        {errors && errors !== dismissed ? (
           <button className="errors" onClick={() => setDismissed(errors)} title="Tap to hide">
             {errors}
           </button>
+        ) : (
+          note && (
+            <p className="note" role="status">
+              {note}
+            </p>
+          )
         )}
 
         {(!running || connectionOpen) && (
@@ -385,16 +401,18 @@ export default function App() {
         <div className="settings">
           {CAMERA_ORDER.map((key) => {
             const state = exposure.states[key];
+            const byCamera = setByCamera(state);
             return (
               <Setting
                 key={key}
                 label={SETTINGS.find((s) => s.key === key)!.label}
                 value={state?.value ?? "–"}
                 open={picker === key}
-                disabled={!state || state.choices.length === 0}
+                disabled={!state}
                 pinned={ettr.pinned.includes(key)}
+                setByCamera={byCamera}
                 flash={ettr.flash.includes(key)}
-                onClick={() => toggle(key)}
+                onClick={() => (byCamera ? setNote(setByCameraNote(exposure.mode)) : toggle(key))}
               />
             );
           })}
@@ -406,7 +424,7 @@ export default function App() {
           />
         </div>
         <div className="actions">
-          <EttrButton ettr={ettr} />
+          <EttrButton ettr={ettr} onBlocked={setNote} />
           <FocusButton focus={exposure.focus} disabled={!live} />
           <ShootButton state={shot.state} disabled={!live} onShoot={() => void shot.shoot()} />
         </div>

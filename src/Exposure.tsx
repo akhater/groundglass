@@ -13,8 +13,15 @@ const REFRESH_MS = 4000;
 
 type States = Partial<Record<camera.ExposureSetting, camera.SettingState>>;
 
+/** The camera sets it in this shooting mode (the shutter in Av): it shows the camera's value, not openable. */
+export const setByCamera = (state: camera.SettingState | undefined) => !!state && state.choices.length === 0;
+
+/** Why a setting can't be changed now, in one line. */
+export const setByCameraNote = (mode: string | null) => `Set by the camera in ${mode ?? "this mode"}`;
+
 export function useExposure(live: boolean) {
   const [states, setStates] = useState<States>({});
+  const [mode, setMode] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -27,6 +34,7 @@ export function useExposure(live: boolean) {
       }
     }
     setStates(next);
+    setMode(await camera.shootingMode().catch(() => null));
   }
 
   useEffect(() => {
@@ -56,7 +64,7 @@ export function useExposure(live: boolean) {
 
   const focus = (held: boolean) => void camera.autofocus(held).catch((e) => setError(camera.describe(e)));
 
-  return { states, error, change, focus, refresh };
+  return { states, mode, error, change, focus, refresh };
 }
 
 /** Back-button focus: the camera focuses for as long as this is held. */

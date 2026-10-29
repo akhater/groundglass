@@ -28,6 +28,8 @@ const AF_FRAME_PART: f64 = 0.1;
 const PICTURE_STYLE: u32 = 0xd110;
 /// Canon's battery level property.
 const BATTERY: u32 = 0xd111;
+/// Canon's shooting mode property: P, Tv, Av, M...
+const SHOOTING_MODE: u32 = 0xd105;
 
 pub struct Camera {
     /// None once closed: a closed session never reopens, `connect` makes a new camera.
@@ -154,7 +156,15 @@ impl Camera {
         let value = properties
             .value(property)
             .ok_or_else(|| CameraError::Refused("the camera hasn't reported this setting".into()))?;
-        Ok(setting_state(label, value, properties.allowed(property)))
+        setting_state(label, value, properties.allowed(property))
+            .ok_or_else(|| CameraError::Refused(format!("the camera reported an unknown value 0x{value:x}")))
+    }
+
+    /// The shooting mode as the dial names it ("Av"), from what the camera last reported.
+    pub fn shooting_mode(&self) -> Result<Option<String>> {
+        let link = lock(&self.link);
+        let properties = link.as_ref().ok_or_else(not_connected)?.session.properties();
+        Ok(properties.value(SHOOTING_MODE).and_then(canon_codes::shooting_mode).map(str::to_string))
     }
 
     /// `value` as `exposure_setting` gives it, e.g. "3200", "f4.0", "1/125".
@@ -426,7 +436,7 @@ fn sensor_point(picture: Area, x: f64, y: f64) -> (u32, u32) {
 }
 
 /// The PTP property behind each exposure setting, and how its codes read.
-fn exposure_property(setting: ExposureSetting) -> (u32, fn(u32) -> String) {
+fn exposure_property(setting: ExposureSetting) -> (u32, Label) {
     match setting {
         ExposureSetting::Iso => (0xd103, canon_codes::iso),
         ExposureSetting::Av => (0xd101, canon_codes::aperture),
@@ -434,14 +444,23 @@ fn exposure_property(setting: ExposureSetting) -> (u32, fn(u32) -> String) {
     }
 }
 
-/// A setting as CCAPI gives it: its value and the values allowed now, as labels.
-fn setting_state(label: fn(u32) -> String, value: u32, allowed: &[u32]) -> SettingState {
-    SettingState { value: label(value), choices: allowed.iter().map(|&code| label(code)).collect() }
+/// How a setting's codes read, None for a code we don't know.
+type Label = fn(u32) -> Option<&'static str>;
+
+/// A setting as CCAPI gives it: its value and the values allowed now, as
+/// labels. Where its mode sets it (the shutter in Av), the camera lists one
+/// code that isn't a value: no choices, as over CCAPI. None for a value we
+/// can't read.
+fn setting_state(label: Label, value: u32, allowed: &[u32]) -> Option<SettingState> {
+    Some(SettingState {
+        value: label(value)?.to_string(),
+        choices: allowed.iter().filter_map(|&code| label(code)).map(str::to_string).collect(),
+    })
 }
 
 /// The allowed code that reads as `wanted`.
-fn setting_code(label: fn(u32) -> String, allowed: &[u32], wanted: &str) -> Option<u32> {
-    allowed.iter().copied().find(|&code| label(code) == wanted)
+fn setting_code(label: Label, allowed: &[u32], wanted: &str) -> Option<u32> {
+    allowed.iter().copied().find(|&code| label(code) == Some(wanted))
 }
 
 /// The camera's percent where it gives one, else Canon's level as a step.
@@ -719,15 +738,32 @@ mod tests {
 
     #[test]
     fn exposure_reads_as_over_ccapi() {
-        let iso = setting_state(canon_codes::iso, 0x70, &[0x48, 0x70, 0x78]);
+        let iso = setting_state(canon_codes::iso, 0x70, &[0x48, 0x70, 0x78]).unwrap();
         assert_eq!(iso.value, "3200");
         assert_eq!(iso.choices, ["100", "3200", "6400"]);
-        let av = setting_state(canon_codes::aperture, 0x28, &[]);
+        let av = setting_state(canon_codes::aperture, 0x28, &[]).unwrap();
         assert_eq!((av.value.as_str(), av.choices.len()), ("f4.0", 0)); // set by the mode
         assert_eq!(setting_code(canon_codes::iso, &[0x48, 0x70], "3200"), Some(0x70));
         assert_eq!(setting_code(canon_codes::shutter_speed, &[0x70, 0x78], "1/250"), Some(0x78));
         // Not allowed now: nothing to send.
         assert_eq!(setting_code(canon_codes::aperture, &[0x28], "f5.6"), None);
+        // A value we can't read isn't shown as a code.
+        assert!(setting_state(canon_codes::iso, 0x1234, &[0x48]).is_none());
+    }
+
+    #[test]
+    fn what_the_mode_sets_has_no_choices_as_over_ccapi() {
+        // As the R6 Mark III reported them (2026-10-29): the setting its mode
+        // sets keeps its value and lists one placeholder as allowed.
+        let shutter_in_av = setting_state(canon_codes::shutter_speed, 0x70, &[0x1500]).unwrap();
+        assert_eq!((shutter_in_av.value.as_str(), shutter_in_av.choices.len()), ("1/125", 0));
+        let shutter_in_p = setting_state(canon_codes::shutter_speed, 0x83, &[0x1c00]).unwrap();
+        assert_eq!((shutter_in_p.value.as_str(), shutter_in_p.choices.len()), ("1/640", 0));
+        let aperture_in_tv = setting_state(canon_codes::aperture, 0x30, &[0xf00]).unwrap();
+        assert_eq!((aperture_in_tv.value.as_str(), aperture_in_tv.choices.len()), ("f5.6", 0));
+        // In M both list their values.
+        let shutter_in_m = setting_state(canon_codes::shutter_speed, 0x2d, &[0x10, 0x2d, 0x70, 0xa8]).unwrap();
+        assert_eq!(shutter_in_m.choices, ["30\"", "2\"5", "1/125", "1/16000"]);
     }
 
     #[test]

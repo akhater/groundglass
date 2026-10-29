@@ -40,23 +40,26 @@ type SettingProps = {
   disabled?: boolean;
   /** Kept as it is by ETTR: a lock in the corner. */
   pinned?: boolean;
+  /** Set by the camera in its shooting mode: a lock in the camera's colour, wins over `pinned`. */
+  setByCamera?: boolean;
   /** Flashes: ETTR found it at the end of its range. */
   flash?: boolean;
   onClick: () => void;
 };
 
-export function Setting({ label, value, open, disabled, pinned, flash, onClick }: SettingProps) {
+export function Setting({ label, value, open, disabled, pinned, setByCamera, flash, onClick }: SettingProps) {
+  const lock = setByCamera ? ", set by the camera" : pinned ? ", pinned" : "";
   return (
     <button
-      className={`setting${flash ? " limit" : ""}`}
-      aria-label={`${label}: ${value}${pinned ? ", pinned" : ""}`}
+      className={`setting${setByCamera ? " by-camera" : ""}${flash ? " limit" : ""}`}
+      aria-label={`${label}: ${value}${lock}`}
       aria-expanded={open}
       disabled={disabled}
       onClick={onClick}
     >
       <small>
         {label}
-        {pinned && <Icon name="pin" />}
+        {(pinned || setByCamera) && <Icon name="pin" />}
       </small>
       <strong>{value}</strong>
     </button>

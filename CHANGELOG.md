@@ -43,6 +43,11 @@ Newest first.
 
 ### Fixed
 
+- **Settings the camera sets:** in Av, Tv and P, the shutter or aperture the
+  camera sets shows its value with a red lock, apart from the gold lock of an
+  ETTR pin, and doesn't open; a tap says why ("Set by the camera in Av"). In
+  EOS Utility mode it used to open and list a raw code such as 0x1500. ETTR is
+  dimmed in these modes and says on a tap that it needs manual exposure.
 - **Picture after stopping:** the picture goes black when live view stops,
   the app is hidden or the camera is lost, instead of keeping the last frame.
 - **Level on a dark picture:** the roll and tilt tracks have a light edge, so

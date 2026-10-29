@@ -20,6 +20,7 @@
 //!   groundglass-cli <host> ptp-exposure   (reads ISO, aperture, shutter; steps ISO up one and back)
 //!   groundglass-cli <host> ptp-style   (reads the Picture Style, sets Neutral, reads it back, restores it)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
+//!   groundglass-cli <host> ptp-modes [seconds]   (ISO, aperture, shutter: values and allowed lists as reported, while the dials turn)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
 //! `--stamp dir` saves every 10th frame as `<ms>.jpg`, named by the PC clock
@@ -59,6 +60,10 @@ fn run(args: &[String]) -> Result<(), String> {
         "ptp-level" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(15);
             return ptp_level(address, Duration::from_secs(seconds));
+        }
+        "ptp-modes" => {
+            let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(60);
+            return ptp_modes(address, Duration::from_secs(seconds));
         }
         "ptp-watch" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(25);
@@ -530,21 +535,6 @@ fn ptp_level(host: &str, length: Duration) -> Result<(), String> {
 fn ptp_watch(host: &str, length: Duration) -> Result<(), String> {
     use groundglass_lib::ptpip::Session;
     use std::collections::HashMap;
-    /// Records of length (u32), type (u32), body; stops at a type 0 record or bad length.
-    fn records(data: &[u8]) -> Vec<(u32, &[u8])> {
-        let mut out = Vec::new();
-        let mut rest = data;
-        while rest.len() >= 8 {
-            let size = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
-            let kind = u32::from_le_bytes(rest[4..8].try_into().unwrap());
-            if kind == 0 || size < 8 || size > rest.len() {
-                break;
-            }
-            out.push((kind, &rest[8..size]));
-            rest = &rest[size..];
-        }
-        out
-    }
     let hex = |b: &[u8]| b.iter().take(48).map(|x| format!("{x:02x}")).collect::<String>();
     let mut session = Session::open(host, Duration::from_secs(90))?;
     let result = (|| -> Result<(), String> {
@@ -605,6 +595,73 @@ fn ptp_watch(host: &str, length: Duration) -> Result<(), String> {
         let mut codes: Vec<_> = properties.keys().map(|c| format!("{c:04x}")).collect();
         codes.sort();
         println!("properties reported: {}", codes.join(" "));
+        Ok(())
+    })();
+    println!("live view output off: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed.map_err(String::from))
+}
+
+/// Records of length (u32), type (u32), body; stops at a type 0 record or bad length.
+fn records(data: &[u8]) -> Vec<(u32, &[u8])> {
+    let mut out = Vec::new();
+    let mut rest = data;
+    while rest.len() >= 8 {
+        let size = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+        let kind = u32::from_le_bytes(rest[4..8].try_into().unwrap());
+        if kind == 0 || size < 8 || size > rest.len() {
+            break;
+        }
+        out.push((kind, &rest[8..size]));
+        rest = &rest[size..];
+    }
+    out
+}
+
+/// Live view for `length` while the dials turn, printing (with the second)
+/// ISO, aperture and shutter speed as the camera reports them: each value
+/// (0xC189) and its whole allowed list (0xC18A), as 32-bit words, and every
+/// other property that changes. Reads only; live view output off at the end.
+fn ptp_modes(host: &str, length: Duration) -> Result<(), String> {
+    use groundglass_lib::ptpip::Session;
+    use std::collections::HashMap;
+    const EXPOSURE: [u32; 3] = [0xd101, 0xd102, 0xd103];
+    let words = |b: &[u8]| b.chunks(4).map(|w| format!("{:x}", u32::from_le_bytes(w.try_into().unwrap_or([0; 4])))).collect::<Vec<_>>().join(" ");
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| -> Result<(), String> {
+        session.start_live_view()?;
+        session.live_view_output(true)?; // the camera's screen stays on, to turn its settings
+        // Its first full report is read while live view starts: what it kept.
+        let properties = session.properties();
+        for code in 0xd000..0xd300 {
+            if let Some(value) = properties.value(code) {
+                println!("start 0x{code:04x} value: {value:x}");
+            }
+        }
+        for code in EXPOSURE {
+            let allowed = properties.allowed(code).iter().map(|v| format!("{v:x}")).collect::<Vec<_>>().join(" ");
+            println!("start 0x{code:04x} allowed: {allowed}");
+        }
+        let started = Instant::now();
+        let mut seen: HashMap<(u32, u32), Vec<u8>> = HashMap::new();
+        while started.elapsed() < length {
+            let t = started.elapsed().as_secs_f32();
+            let _ = session.viewfinder_data()?;
+            for (kind, body) in records(&session.event_data()?) {
+                if !matches!(kind, 0xc189 | 0xc18a) || body.len() < 4 {
+                    continue;
+                }
+                let property = u32::from_le_bytes(body[..4].try_into().unwrap());
+                if seen.get(&(kind, property)).map(Vec::as_slice) == Some(&body[4..]) {
+                    continue;
+                }
+                seen.insert((kind, property), body[4..].to_vec());
+                let what = if kind == 0xc189 { "value" } else { "allowed (type count values)" };
+                println!("{t:5.1}s 0x{property:04x} {what}: {}", words(&body[4..]));
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
         Ok(())
     })();
     println!("live view output off: {:?}", session.stop_live_view());
