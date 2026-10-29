@@ -91,6 +91,8 @@ void main() {
 export type Renderer = {
   /** `look` is drawn when given; changing it only re-uploads when it is a different LUT. */
   draw(image: ImageBitmap, zebraPercent: number | null, look: Cube | null, peaking: Peaking | null): void;
+  /** Black, for when there is no live picture to show. */
+  clear(): void;
 };
 
 /** Peaking sensitivity: "high" marks slightly softer edges too. */
@@ -160,6 +162,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       gl.uniform1f(peakLevel, peaking ? PEAK_LEVELS[peaking] : 0);
       gl.uniform1f(stripeShift, (performance.now() / 40) % 12);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+    clear() {
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
     },
   };
 }

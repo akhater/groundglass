@@ -31,6 +31,20 @@ pub fn picture_style(code: u32) -> String {
     label(PICTURE_STYLE, code)
 }
 
+/// The battery's charge in percent from property 0xD111, or None for a code
+/// we don't know. libgphoto2's _get_Canon_EOS_BatteryLevel gives quarters and
+/// "Low", read here as 10%: the camera's one red bar.
+pub fn battery_percent(code: u32) -> Option<u8> {
+    match code {
+        2 => Some(100),
+        4 => Some(75),
+        1 => Some(50),
+        5 => Some(25),
+        0 => Some(10),
+        _ => None,
+    }
+}
+
 fn label(table: &[(u32, &str)], code: u32) -> String {
     table
         .iter()
@@ -290,5 +304,15 @@ mod tests {
         assert_eq!(picture_style(0x87), "Auto");
         assert_eq!(picture_style(0x21), "User Def. 1");
         assert_eq!(picture_style(0x99), "0x99");
+    }
+
+    #[test]
+    fn battery_codes_read_as_percent() {
+        assert_eq!(battery_percent(2), Some(100));
+        assert_eq!(battery_percent(4), Some(75));
+        assert_eq!(battery_percent(1), Some(50));
+        assert_eq!(battery_percent(5), Some(25));
+        assert_eq!(battery_percent(0), Some(10));
+        assert_eq!(battery_percent(3), None);
     }
 }

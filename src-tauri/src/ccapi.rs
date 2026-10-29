@@ -221,6 +221,16 @@ impl Camera {
         self.put("/shooting/liveview/afframeposition", &format!(r#"{{"positionx":{x},"positiony":{y}}}"#))
     }
 
+    /// The battery's charge in percent: from `batterylist` (ver110, in percent)
+    /// where the camera has it, else from `battery` (ver100, in quarters).
+    pub fn battery(&self) -> Result<Option<u8>> {
+        let body = match self.request("GET", "/ver110/devicestatus/batterylist", None) {
+            Err(CameraError::Refused(_)) => self.get("/devicestatus/battery")?,
+            other => other?,
+        };
+        Ok(battery_from(&body))
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }
@@ -320,6 +330,24 @@ fn histogram_from(details: &[u8]) -> Option<Vec<u32>> {
     counts.iter().map(|count| count.as_u64().map(|count| count as u32)).collect()
 }
 
+/// The battery's charge in percent, from ver110 `batterylist` (its first
+/// battery, the level in percent) or ver100 `battery` (a word for the level).
+fn battery_from(body: &[u8]) -> Option<u8> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let battery = json.get("batterylist").map_or(Some(&json), |list| list.get(0))?;
+    let level = &battery["level"];
+    let percent = match level.as_str() {
+        Some("full") => 100,
+        Some("high") => 75,
+        Some("half") => 50,
+        Some("quarter") => 25,
+        Some("low") => 10,
+        Some(text) => text.parse().ok()?,
+        None => level.as_u64()?,
+    };
+    u8::try_from(percent).ok().filter(|&percent| percent <= 100)
+}
+
 fn level_from(details: &[u8]) -> Option<Level> {
     let json = details_json(details)?;
     let angle = &json["angleinformation"];
@@ -399,7 +427,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AfFrame, AfState, Level, af_frames_from, focus_point, histogram_from, level_from, root_url};
+    use super::{AfFrame, AfState, Level, af_frames_from, battery_from, focus_point, histogram_from, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -464,5 +492,27 @@ mod tests {
     fn level_is_none_without_an_angle() {
         assert_eq!(level_from(br#"{"liveviewdata":{}}"#), None);
         assert_eq!(level_from(b"not json"), None);
+    }
+
+    #[test]
+    fn battery_reads_the_first_battery_in_percent() {
+        // ver110 batterylist: the level in percent, as a string.
+        let list = br#"{"batterylist":[{"position":"camera","name":"LP-E6P","kind":"battery","level":"87","quality":"good"}]}"#;
+        assert_eq!(battery_from(list), Some(87));
+        // ver100 battery: a word for the level.
+        assert_eq!(battery_from(br#"{"name":"LP-E6P","kind":"battery","level":"full","quality":"good"}"#), Some(100));
+        assert_eq!(battery_from(br#"{"level":"high"}"#), Some(75));
+        assert_eq!(battery_from(br#"{"level":"half"}"#), Some(50));
+        assert_eq!(battery_from(br#"{"level":"quarter"}"#), Some(25));
+        assert_eq!(battery_from(br#"{"level":"low"}"#), Some(10));
+        assert_eq!(battery_from(br#"{"level":90}"#), Some(90));
+    }
+
+    #[test]
+    fn battery_is_none_without_a_known_level() {
+        assert_eq!(battery_from(br#"{"level":"unknown"}"#), None);
+        assert_eq!(battery_from(br#"{"level":"250"}"#), None);
+        assert_eq!(battery_from(br#"{"batterylist":[]}"#), None);
+        assert_eq!(battery_from(b"not json"), None);
     }
 }

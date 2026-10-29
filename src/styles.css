@@ -1,13 +1,18 @@
 :root {
-  --bg: #0d0d0f;
-  --panel: #17171b;
-  --line: #2e2e35;
-  --text: #ececee;
-  --muted: #9a9aa3;
-  --accent: #e0b25c;
-  --live: #7fd492;
-  --bad: #f08a7a;
-  --scrim: rgb(10 10 12 / 0.86);
+  --bg: #000;
+  --panel: rgb(16 16 19 / 0.92);
+  --line: rgb(255 255 255 / 0.1);
+  --text: #f4f4f2;
+  --muted: rgb(244 244 242 / 0.6);
+  --faint: rgb(244 244 242 / 0.36);
+  --accent: #ffbe3d;
+  --on-accent: #1b1404;
+  --accent-soft: rgb(255 190 61 / 0.15);
+  --live: #4fe08a;
+  --servo: #4aa8ff;
+  --bad: #ff7a66;
+  --scrim: rgb(10 10 12 / 0.72);
+  --raised: rgb(255 255 255 / 0.09);
   color-scheme: dark;
   font-family: system-ui, sans-serif;
   font-size: 15px;
@@ -47,22 +52,45 @@ button:disabled {
   outline-offset: 2px;
 }
 
-/* The picture takes all the space the controls leave. Tall: controls below
-   it, in thumb reach. Wide: controls in a column on the right. The controls
-   scroll rather than being cut off when the window is very small. */
+.icon {
+  display: block;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Layout ----------
+   The picture is as large as the screen allows and nothing covers it but the
+   aids switched on. Left thumb: the status and the aids. Right thumb: the
+   camera. Choices open beside the control that asked for them.
+
+   Tall (phone upright): status, picture, aids, a free area where choices and
+   the histogram open, and the camera at the bottom. */
 .app {
+  position: relative;
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: calc(48px + env(safe-area-inset-top)) auto auto minmax(0, 1fr) auto;
+  grid-template-areas: "status" "stage" "tools" "zone" "camera";
   overflow: hidden;
+  user-select: none;
 }
 
 .stage {
+  grid-area: stage;
   position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #000;
+  aspect-ratio: 3 / 2;
+  max-height: 60vh;
 }
 
 .view {
@@ -73,108 +101,388 @@ button:disabled {
   object-fit: contain;
 }
 
-.rail {
+.band.assists {
+  display: contents;
+}
+
+.status {
+  grid-area: status;
+  align-self: end;
+  justify-self: start;
+  margin: 0 0 4px max(10px, env(safe-area-inset-left));
+}
+
+.tools {
+  grid-area: tools;
   display: grid;
-  gap: 10px;
-  justify-content: stretch;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 10px max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
-    max(12px, env(safe-area-inset-left));
-  background: var(--panel);
-  user-select: none;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  padding: 6px max(2px, env(safe-area-inset-left)) 4px;
 }
 
-.rail > * {
-  width: 100%;
-  max-width: 520px;
-  margin-inline: auto;
-}
-
-/* Tall: ISO, aperture and shutter on one row, look, zebra and peaking on the next. */
-.chips {
+.band.camera {
+  grid-area: camera;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-auto-flow: dense;
-  gap: 8px;
+  gap: 14px;
+  padding: 8px max(12px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 
-.chip {
-  grid-column: span 2;
+.settings {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 0.75fr 1.45fr;
 }
 
+.settings .setting {
+  align-items: center;
+  text-align: center;
+}
+
+.settings .setting + .setting {
+  background: linear-gradient(var(--line), var(--line)) left center / 1px 56% no-repeat;
+}
+
+.settings .setting[aria-expanded="true"] {
+  background: var(--accent-soft);
+}
+
+/* Shutter in the middle, AF-ON beside it under the thumb. */
 .actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 12px;
+  column-gap: 32px;
 }
 
+.actions .shoot {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.actions .af {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.fold {
+  display: none;
+}
+
+/* Wide (phone on its side): a band each side of the picture, in the black the
+   3:2 picture leaves anyway. */
 @media (orientation: landscape) {
   .app {
-    grid-template-rows: none;
-    grid-template-columns: minmax(0, 1fr) auto;
+    --band: max(120px, calc((100vw - 150vh) / 2));
+    grid-template-columns: var(--band) minmax(0, 1fr) var(--band);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "assists stage camera";
   }
-  .rail {
-    width: clamp(216px, 26vw, 300px);
+  .stage {
+    aspect-ratio: auto;
     max-height: none;
-    /* "safe": when it scrolls, the top stays reachable. */
-    align-content: safe center;
-    padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-      calc(12px + env(safe-area-inset-bottom)) 12px;
   }
-  /* Two columns: ISO and aperture, shutter and look, zebra and peaking. */
-  .chips {
+  .band.assists {
+    grid-area: assists;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    padding: calc(8px + env(safe-area-inset-top)) 4px calc(8px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+  }
+  .status {
+    align-self: stretch;
+    margin: 0;
+  }
+  .status .battery {
+    flex-basis: 100%;
+    margin-left: 15px;
+  }
+  .tools {
+    flex: 1;
+    min-height: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    padding: 0;
   }
-  .chip {
-    grid-column: span 1;
+  .band.camera {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
+    padding: calc(8px + env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 6px;
+  }
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .settings .setting {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .settings .setting + .setting {
+    background: none;
+  }
+  .settings .setting[aria-expanded="true"] {
+    background: var(--accent-soft);
+  }
+  .actions {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
   }
 }
 
-/* A setting: its name small, its value large. */
-.chip {
+/* Short phones on their side (360 px and less): smaller settings and buttons,
+   so the shutter stays whole. */
+@media (orientation: landscape) and (max-height: 380px) {
+  .band.camera .setting {
+    min-height: 40px;
+    padding-block: 1px;
+  }
+  .band.camera .setting strong {
+    font-size: 16px;
+    line-height: 20px;
+  }
+  .band.camera .setting:last-child strong {
+    font-size: 13px;
+  }
+  .band.camera .actions {
+    gap: 8px;
+  }
+  .band.camera .af {
+    width: 52px;
+    height: 52px;
+  }
+  .band.camera .shoot {
+    width: 64px;
+    height: 64px;
+    padding: 4px;
+  }
+}
+
+/* Large screens (desktop, tablet): the picture fills the window and the bands
+   float over its edges, each tucked away with its arrow. */
+@media (orientation: landscape) and (min-width: 1000px) {
+  .app {
+    --band: 136px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "stage";
+  }
+  .band.assists,
+  .band.camera {
+    grid-area: stage;
+    position: absolute;
+    top: 50%;
+    z-index: 4;
+    width: var(--band);
+    max-height: calc(100% - 24px);
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: var(--panel);
+    backdrop-filter: blur(20px);
+    transform: translateY(-50%);
+    transition: transform 0.25s ease;
+  }
+  .band.assists {
+    left: 12px;
+  }
+  .band.camera {
+    right: 12px;
+  }
+  .tools {
+    flex: none;
+    grid-auto-rows: 72px;
+  }
+  .actions {
+    margin-top: 16px;
+  }
+  .fold {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 100%;
+    min-height: 40px;
+    margin-top: 6px;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+  }
+  /* Tucked away: only the arrow's edge stays on the picture. */
+  .fold-assists .band.assists {
+    transform: translate(calc(-100% + 20px), -50%);
+  }
+  .fold-camera .band.camera {
+    transform: translate(calc(100% - 20px), -50%);
+  }
+  .fold-assists .band.assists > :not(.fold),
+  .fold-camera .band.camera > :not(.fold) {
+    visibility: hidden;
+  }
+  .fold-assists .band.assists,
+  .fold-camera .band.camera {
+    border-color: transparent;
+    background: none;
+    backdrop-filter: none;
+  }
+  .fold-assists .band.assists .fold,
+  .fold-camera .band.camera .fold {
+    position: absolute;
+    top: 50%;
+    width: 24px;
+    height: 72px;
+    margin: -36px 0 0;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+  }
+  .fold-assists .band.assists .fold {
+    right: 0;
+  }
+  .fold-camera .band.camera .fold {
+    left: 0;
+  }
+}
+
+/* ---------- Controls ---------- */
+
+/* An aid: icon and setting, a soft disc when on, a solid one while its choices are open. */
+.tool {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 8px;
   min-width: 0;
-  min-height: 54px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  text-align: left;
+  min-height: 60px;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
-.chip span {
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+.tool .icon,
+.tool span {
+  position: relative;
 }
 
-.chip strong {
+.tool span {
   max-width: 100%;
   overflow: hidden;
-  font-size: 1.15rem;
+  color: var(--muted);
+  font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.chip[aria-expanded="true"] {
-  border-color: var(--accent);
+.tool::before {
+  content: "";
+  position: absolute;
+  top: calc(50% - 28px);
+  left: calc(50% - 18px);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transition: background-color 0.15s;
 }
 
-.chip[aria-expanded="true"] strong {
+.tool[aria-pressed="true"] {
   color: var(--accent);
 }
 
-.chip:disabled {
-  opacity: 0.45;
+.tool[aria-pressed="true"] span {
+  color: var(--accent);
+}
+
+.tool[aria-pressed="true"]::before {
+  background: var(--accent-soft);
+}
+
+.tool[aria-expanded="true"]::before {
+  background: var(--accent);
+}
+
+.tool[aria-expanded="true"] .icon {
+  color: var(--on-accent);
+}
+
+.tool[aria-expanded="true"] span {
+  color: var(--accent);
+}
+
+/* Has choices: a dot at the disc's corner. */
+.tool.opens::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 28px);
+  left: calc(50% + 14px);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.tool:disabled {
+  opacity: 0.3;
+}
+
+/* A camera setting: name small, value large. */
+.setting {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  text-align: left;
+}
+
+.setting small {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.setting strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.setting:last-child strong {
+  font-size: 14px;
+}
+
+.setting[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.setting[aria-expanded="true"] small {
+  color: rgb(255 190 61 / 0.7);
+}
+
+.setting:disabled {
+  opacity: 0.35;
 }
 
 /* Back-button focus: lights up while held. */
@@ -183,26 +491,31 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 64px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
+  width: 62px;
+  height: 62px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   touch-action: none;
   -webkit-touch-callout: none;
 }
 
 .af small {
-  font-size: 0.7rem;
-  font-weight: 400;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--muted);
 }
 
 .af.held {
-  border-color: var(--accent);
   background: var(--accent);
-  color: #1a1408;
+  box-shadow: none;
+  color: var(--on-accent);
 }
 
 .af.held small {
@@ -210,13 +523,13 @@ button:disabled {
 }
 
 .af:disabled {
-  opacity: 0.45;
+  opacity: 0.35;
 }
 
 /* The shutter: one big round target for the thumb. */
 .shoot {
-  width: 76px;
-  height: 76px;
+  width: 74px;
+  height: 74px;
   padding: 5px;
   border: 3px solid var(--text);
   border-radius: 50%;
@@ -229,7 +542,7 @@ button:disabled {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--text);
   transition: transform 0.12s, background-color 0.12s;
 }
 
@@ -239,15 +552,15 @@ button:disabled {
 }
 
 .shoot.done::before {
-  background: var(--text);
+  background: var(--accent);
 }
 
 .shoot:disabled {
-  border-color: var(--line);
+  border-color: #2c2c30;
 }
 
 .shoot:disabled::before {
-  background: var(--line);
+  background: #2c2c30;
 }
 
 .shoot.busy:disabled {
@@ -255,7 +568,7 @@ button:disabled {
 }
 
 .shoot.busy:disabled::before {
-  background: var(--accent);
+  background: var(--text);
 }
 
 .flash {
@@ -273,57 +586,435 @@ button:disabled {
   }
 }
 
-/* On the picture: status at the top left, messages under it. */
+/* The status: fps (or what is happening) and the camera's battery. Tapping it opens the connection. */
 .status {
-  position: absolute;
-  top: calc(10px + env(safe-area-inset-top));
-  left: max(10px, env(safe-area-inset-left));
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 12px;
+  gap: 4px 8px;
+  min-height: 44px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 18px;
-  background: var(--scrim);
-  font-size: 0.85rem;
+  border-radius: 12px;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.status[aria-expanded="true"] {
+  background: var(--raised);
 }
 
 .status::before {
   content: "";
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
 }
 
 .status.live::before {
   background: var(--live);
+  box-shadow: 0 0 8px var(--live);
 }
 
 .status.lost::before {
   background: var(--bad);
 }
 
-.errors {
-  position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
-  left: max(10px, env(safe-area-inset-left));
-  max-width: min(440px, calc(100% - 20px));
-  padding: 8px 12px;
-  border: 1px solid var(--bad);
-  border-radius: 10px;
-  background: var(--scrim);
-  color: var(--bad);
-  font-size: 0.85rem;
-  text-align: left;
-  white-space: pre-line;
+/* The camera's battery, a small gauge and its percent, as on the camera's screen. */
+.battery {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  color: var(--muted);
 }
 
-/* Connection: centred before Start, under the status while live. */
+.battery i {
+  position: relative;
+  box-sizing: content-box;
+  width: 18px;
+  height: 8px;
+  padding: 1px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.battery b {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.battery i::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: -4px;
+  width: 2px;
+  height: 6px;
+  border-radius: 0 1px 1px 0;
+  background: currentColor;
+}
+
+.battery.low {
+  color: var(--bad);
+}
+
+/* Messages: at the top of the picture, tap to hide. */
+.errors {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 3;
+  width: max-content;
+  max-width: calc(100% - 20px);
+  padding: 9px 14px;
+  border: 1px solid rgb(255 122 102 / 0.45);
+  border-radius: 12px;
+  background: rgb(52 20 16 / 0.92);
+  color: #ffd9d2;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  white-space: pre-line;
+  transform: translateX(-50%);
+}
+
+/* ---------- Choices ----------
+   Beside the band that asked, over the picture's edge; on a tall screen, in
+   the free area under the aids. */
+.picker {
+  grid-area: zone;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  margin: 6px 8px;
+  padding: 8px 10px 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  align-self: start;
+  max-height: calc(100% - 12px);
+}
+
+.picker header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.picker h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.picker .close,
+.picker .action,
+.picker .step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: var(--raised);
+}
+
+.picker .close .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.picker .action {
+  padding: 0 14px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.picker .action .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.picker .action:disabled,
+.picker .step:disabled {
+  opacity: 0.3;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.tile[aria-pressed="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent);
+}
+
+.tile.add {
+  border: 1.5px dashed rgb(255 255 255 / 0.28);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.art {
+  width: 34px;
+  height: 24px;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.tile[aria-pressed="true"] .art {
+  color: var(--accent);
+}
+
+.art rect,
+.art line,
+.art path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.art .faint {
+  opacity: 0.4;
+}
+
+.art .dashed {
+  stroke-dasharray: 2 2;
+}
+
+/* An exposure scale: - and + at the ends, the values between, the current one lit. */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+}
+
+.values {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+}
+
+.values button {
+  flex: none;
+  min-width: 64px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.values [aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 18px;
+}
+
+/* The histogram: on the picture's bottom left corner beside the bands; large
+   in the free area on a tall screen. */
+.histogram {
+  grid-area: zone;
+  position: relative;
+  align-self: start;
+  height: 120px;
+  margin: 12px 14px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.app:has(.picker) .histogram {
+  display: none;
+}
+
+@media (orientation: landscape) {
+  .histogram {
+    grid-area: stage;
+    position: absolute;
+    left: calc(var(--picture-left, 0px) + 10px);
+    bottom: calc(100% - var(--picture-bottom, 100%) + 10px);
+    width: clamp(110px, 22%, 190px);
+    height: 58px;
+    margin: 0;
+    border: 0;
+    border-radius: 10px;
+    background: var(--scrim);
+  }
+  .histogram {
+    z-index: 6;
+  }
+  /* Beside the aids' choices, which cover the picture's left edge, so it stays in view. */
+  .app:has(.picker) .histogram {
+    display: block;
+  }
+  .app:has(.picker.assists) .histogram {
+    left: max(calc(var(--picture-left, 0px) + 10px), 252px);
+  }
+  .picker {
+    grid-area: stage;
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    align-self: stretch;
+    margin: 0;
+    max-height: none;
+  }
+  .picker.assists {
+    left: 8px;
+    width: 236px;
+  }
+  .picker.camera {
+    right: 8px;
+    width: 300px;
+  }
+  .picker .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(56px, auto);
+    align-content: start;
+  }
+  /* Upright: - at the top, + at the bottom, like a dial. */
+  .picker.dial {
+    width: 112px;
+    padding: 8px;
+  }
+  /* Too narrow for a title: the lit setting beside it says what this is. */
+  .picker.dial header {
+    justify-content: center;
+  }
+  .picker.dial h2 {
+    display: none;
+  }
+  .steps {
+    flex: 1;
+    flex-direction: column;
+  }
+  .values {
+    flex-direction: column;
+    width: 100%;
+    mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+  }
+  .values button {
+    min-width: 0;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 1000px) {
+  .histogram {
+    left: max(calc(var(--picture-left, 0px) + 10px), calc(var(--band) + 24px));
+  }
+  .fold-assists .histogram {
+    left: max(calc(var(--picture-left, 0px) + 10px), 34px);
+  }
+  .picker.assists,
+  .picker.camera {
+    align-self: start;
+  }
+  .picker.assists {
+    left: calc(var(--band) + 24px);
+    top: 50%;
+    bottom: auto;
+    max-height: calc(100% - 24px);
+    transform: translateY(-50%);
+  }
+  .picker.camera {
+    right: calc(var(--band) + 24px);
+    top: 50%;
+    bottom: auto;
+    max-height: calc(100% - 24px);
+    transform: translateY(-50%);
+  }
+  .picker.dial {
+    height: min(520px, calc(100% - 24px));
+  }
+  /* Clear of the bands over the picture's edges. */
+  .app:not(.fold-camera) .scale.pitch {
+    right: calc(var(--band) + 12px);
+  }
+  .app:not(.fold-camera) .pitch-value {
+    right: calc(var(--band) + 24px);
+  }
+  .errors {
+    top: 16px;
+  }
+}
+
+.histogram svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.histogram path {
+  fill: rgb(255 255 255 / 0.8);
+}
+
+/* ---------- Connection ----------
+   Centred on the picture before Start; beside the status while live. */
 .panel {
   position: absolute;
+  z-index: 5;
   display: grid;
   gap: 12px;
   width: min(340px, calc(100% - 24px));
@@ -331,8 +1022,9 @@ button:disabled {
   overflow-y: auto;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 20px;
   background: var(--panel);
+  backdrop-filter: blur(20px);
 }
 
 .connect {
@@ -342,18 +1034,23 @@ button:disabled {
 }
 
 .sheet {
-  top: calc(56px + env(safe-area-inset-top));
-  left: max(10px, env(safe-area-inset-left));
-  max-height: calc(100% - 66px - env(safe-area-inset-top));
+  top: 10px;
+  left: 10px;
+}
+
+@media (orientation: landscape) and (min-width: 1000px) {
+  .sheet {
+    left: calc(var(--band) + 24px);
+  }
 }
 
 .panel h1 {
   margin: 0;
   font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-weight: 700;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--accent);
 }
 
 .panel p {
@@ -368,23 +1065,24 @@ button:disabled {
 
 .panel input:not([type]) {
   min-width: 0;
-  padding: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
   font-size: 1rem;
+  user-select: text;
 }
 
 .panel button {
   min-height: 48px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-weight: 600;
 }
 
 .panel button.primary {
   border: 0;
   background: var(--accent);
-  color: #1a1408;
+  color: var(--on-accent);
 }
 
 .panel button.primary:disabled {
@@ -411,109 +1109,6 @@ button:disabled {
   accent-color: var(--accent);
 }
 
-/* A strip of choices along the bottom of the picture. */
-.strip {
-  position: absolute;
-  inset: auto 0 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px max(8px, env(safe-area-inset-left));
-  background: var(--scrim);
-  border-top: 1px solid var(--line);
-}
-
-.choices {
-  position: relative;
-  flex: 1;
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  overscroll-behavior: contain;
-}
-
-.choices > * {
-  flex: none;
-  display: flex;
-  align-items: center;
-  max-width: 14em;
-  min-width: 56px;
-  min-height: 48px;
-  padding: 0 14px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  font-size: 1.05rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  justify-content: center;
-}
-
-.choices [aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #1a1408;
-  font-weight: 600;
-}
-
-.choices .add {
-  border-style: dashed;
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.step {
-  flex: none;
-  width: 44px;
-  height: 48px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  font-size: 1.5rem;
-  line-height: 1;
-}
-
-.step:disabled {
-  opacity: 0.25;
-}
-
-@media (orientation: landscape) {
-  .strip {
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .flash {
-    animation: none;
-  }
-  .shoot::before {
-    transition: none;
-  }
-}
-
-/* Short windows: smaller targets, so the shutter stays on screen. */
-@media (orientation: landscape) and (max-height: 340px) {
-  .rail,
-  .chips {
-    gap: 6px;
-  }
-  .chip {
-    min-height: 44px;
-    padding-block: 3px;
-  }
-  .af {
-    min-height: 56px;
-  }
-  .shoot {
-    width: 64px;
-    height: 64px;
-  }
-}
-
 .address-field {
   display: flex;
   gap: 8px;
@@ -531,7 +1126,7 @@ button:disabled {
 .recent {
   display: grid;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -540,7 +1135,7 @@ button:disabled {
   padding: 0 12px;
   border: 0;
   border-radius: 0;
-  background: var(--bg);
+  background: transparent;
   font-weight: 400;
   text-align: left;
 }
@@ -552,6 +1147,19 @@ button:disabled {
 .panel .recent button[aria-selected="true"] {
   color: var(--accent);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+  }
+  .shoot::before,
+  .tool::before,
+  .band {
+    transition: none !important;
+  }
+}
+
+/* ---------- Drawn over the picture ---------- */
 
 /* The camera's level: a roll scale along the bottom, a tilt scale up the side. */
 .level {
@@ -579,6 +1187,7 @@ button:disabled {
   position: absolute;
   border-radius: 50%;
   background: #fff;
+  box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.75);
   transition: left 0.2s, top 0.2s;
 }
 
@@ -648,62 +1257,6 @@ button:disabled {
   transform: translateY(-50%);
 }
 
-/* The histogram, bottom left of the picture, clear of the level's roll scale. */
-.histogram {
-  position: absolute;
-  left: max(10px, env(safe-area-inset-left));
-  bottom: 10px;
-  width: min(26%, 180px);
-  height: 64px;
-  padding: 4px 6px;
-  border-radius: 8px;
-  background: var(--scrim);
-  color: var(--muted);
-  font-size: 0.8rem;
-  pointer-events: none;
-}
-
-.histogram svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.histogram path {
-  fill: rgb(255 255 255 / 0.75);
-}
-
-/* Crop, Grid, Level, Histogram, x5, x10 and DOF (dimmed outside EOS Utility
-   mode), over the top right of the picture; on a narrow screen they wrap clear
-   of the status badge. */
-.stage-tools {
-  position: absolute;
-  top: calc(10px + env(safe-area-inset-top));
-  right: max(10px, env(safe-area-inset-right));
-  max-width: calc(100% - 110px);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.stage-tools button {
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 18px;
-  background: var(--scrim);
-  font-size: 0.85rem;
-}
-
-.stage-tools button:disabled {
-  opacity: 0.45;
-}
-
-.stage-tools button[aria-pressed="true"] {
-  color: var(--live);
-}
-
 /* Crop frame: everything outside the chosen ratio darkened. */
 .crop {
   position: absolute;
@@ -713,24 +1266,26 @@ button:disabled {
 
 .crop div {
   position: absolute;
-  outline: 1px solid rgb(255 255 255 / 0.6);
+  outline: 1px solid rgb(255 255 255 / 0.75);
+  border: 1px solid rgb(0 0 0 / 0.6);
   box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.65);
 }
 
-/* Composition guides: thin light lines that stay thin however they are scaled. */
+/* Composition guides: thin light lines that stay thin however they are scaled,
+   edged in black so they still show on a white sky. */
 .composition {
   position: absolute;
   overflow: hidden;
   pointer-events: none;
+  filter: drop-shadow(0 0 0.6px #000) drop-shadow(0 0 1px rgb(0 0 0 / 0.7));
 }
 
 .composition line,
 .composition path {
   fill: none;
-  stroke: rgb(255 255 255 / 0.7);
+  stroke: rgb(255 255 255 / 0.85);
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
 }
 
 .composition .dashed {
@@ -743,7 +1298,7 @@ button:disabled {
   position: absolute;
   border: 2px solid #fff;
   border-radius: 3px;
-  box-shadow: 0 0 2px #000;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.6);
   pointer-events: none;
 }
 
@@ -752,5 +1307,5 @@ button:disabled {
 }
 
 .af-frame.tracking {
-  border-color: #4aa8ff;
+  border-color: var(--servo);
 }

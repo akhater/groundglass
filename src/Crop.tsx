@@ -27,3 +27,14 @@ export function Crop({ box, ratio }: { box: Box; ratio: Ratio }) {
     </div>
   );
 }
+
+/** A small drawing of `ratio` for its tile: the frame inside the picture's 3:2. */
+export function CropArt({ ratio }: { ratio: Ratio }) {
+  const inner = cropBox({ left: 0, top: 0, width: 30, height: 20 }, ratio);
+  return (
+    <svg className="art" viewBox="-1 -1 32 22" aria-hidden="true">
+      <rect className="faint" width={30} height={20} rx={1.5} />
+      <rect x={inner.left} y={inner.top} width={inner.width} height={inner.height} rx={1} />
+    </svg>
+  );
+}

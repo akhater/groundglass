@@ -4,6 +4,36 @@ Newest first.
 
 ## 26.44.4 - unreleased
 
+### Added
+
+- **Battery:** the camera's battery level next to the frame rate, red at 20%
+  and under, in both Wi-Fi modes. It is read every 30 seconds.
+
+### Changed
+
+- **Magnify:** one button steps through x1, x5 and x10 and back, as the
+  camera's magnify button does, and shows the current level (EOS Utility mode;
+  dimmed in CCAPI mode).
+- **Live view screen:** the picture takes all the room the screen allows. On
+  a phone on its side, the aids (zebra, peaking, guides, crop, level,
+  histogram, magnify, depth of field preview) sit in a band on the left with
+  the frame rate and battery, and the camera (shutter, aperture, ISO, look,
+  AF-ON, shutter button) in a band on the right. Upright, the aids sit under
+  the picture and the camera at the bottom; on a large screen both bands float
+  over the picture and fold away. Each aid shows its setting and lights up when
+  on. Choices open beside the control that asked: a scale with - and + for
+  exposure, all the choices at once for the rest, Rotate in the guides.
+- **Histogram:** sits in the picture's bottom left corner, beside the choices
+  when they open over that corner instead of hiding under them; large under
+  the aids on a phone held upright.
+- **Overlays:** guides, crop frame, AF frames and the level's markers have a
+  dark edge, so they show on a bright sky.
+
+### Fixed
+
+- **Picture after stopping:** the picture goes black when live view stops,
+  the app is hidden or the camera is lost, instead of keeping the last frame.
+
 ## 26.44.3 - 2026-10-29
 
 ### Added

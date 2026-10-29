@@ -1,19 +1,24 @@
-// The screen: the live picture with what opens over it, and the controls beside it.
+// The screen: the live picture, the aids drawn over it in one band, the camera
+// in the other, and the choices that open beside them.
 import { useEffect, useRef, useState } from "react";
 import type * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
+import { Setting, Tool } from "./Controls";
 import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
-import { Composition, GUIDES, TURNING, type Guide } from "./Composition";
-import { Crop, cropBox, RATIOS, type Ratio } from "./Crop";
+import { Composition, GuideArt, GUIDES, TURNING, type Guide } from "./Composition";
+import { Crop, CropArt, cropBox, RATIOS, type Ratio } from "./Crop";
 import { Histogram } from "./Histogram";
+import { Icon } from "./icons";
 import { Level } from "./Level";
-import { MagnifyButtons, useMagnify } from "./Magnify";
+import { MagnifyTools, useMagnify } from "./Magnify";
 import { pictureBox } from "./picture";
 import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
 import type { Peaking } from "./render";
-import { Strip } from "./Strip";
+import { Scale } from "./Scale";
+import { Tiles } from "./Tiles";
+import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
 import { useTapFocus } from "./useTapFocus";
@@ -30,9 +35,12 @@ const PEAKING_CHOICES: { value: Peaking | "off"; label: string }[] = [
   { value: "mid", label: "Mid" },
   { value: "high", label: "High" },
 ];
+/** The camera's settings in the order its own screen shows them. */
+const CAMERA_ORDER: camera.ExposureSetting[] = ["tv", "av", "iso"];
 
-/** The strip of choices open over the picture. */
+/** The choices open beside the picture. */
 type Picker = camera.ExposureSetting | "look" | "zebra" | "peaking" | "grid" | "crop";
+type Side = "assists" | "camera";
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -72,7 +80,11 @@ export default function App() {
   const [guideRotation, setGuideRotation] = useState(0);
   const [crop, setCrop] = useState<Ratio | "off">("off");
   const details = useLiveDetails(live);
+  const battery = useBattery(live);
   const tapFocus = useTapFocus(canvas);
+  /** Large screens only, where the bands sit over the picture: a band tucked away. */
+  const [folded, setFolded] = useState({ assists: false, camera: false });
+  const fold = (side: Side) => setFolded((now) => ({ ...now, [side]: !now[side] }));
 
   const closeAll = () => {
     setPicker(null);
@@ -91,19 +103,21 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function strip() {
+  function choices() {
     const close = () => setPicker(null);
     if (picker === "look") {
       return (
-        <Strip
+        <Tiles
+          side="camera"
           label="Look"
-          choices={[{ value: "", label: "None" }, ...looks.names.map((name) => ({ value: name, label: lookLabel(name) }))]}
+          tiles={[{ value: "", label: "None" }, ...looks.names.map((name) => ({ value: name, label: lookLabel(name) }))]}
           value={looks.chosen}
           onPick={looks.choose}
           onClose={close}
-          extra={
-            <label className="add">
-              + Add
+          first={
+            <label className="tile add">
+              <Icon name="plus" />
+              <span>Add .cube</span>
               <input
                 type="file"
                 accept=".cube"
@@ -121,9 +135,10 @@ export default function App() {
     }
     if (picker === "zebra") {
       return (
-        <Strip
+        <Tiles
+          side="assists"
           label="Zebra"
-          choices={[{ value: "off", label: "Off" }, ...ZEBRA_LEVELS.map((n) => ({ value: String(n), label: `${n}%` }))]}
+          tiles={[{ value: "off", label: "Off" }, ...ZEBRA_LEVELS.map((n) => ({ value: String(n), label: `${n}%` }))]}
           value={zebraOn ? String(zebraPercent) : "off"}
           onPick={(value) => {
             setZebraOn(value !== "off");
@@ -134,29 +149,38 @@ export default function App() {
       );
     }
     if (picker === "grid") {
+      const turns = guide !== "off" && TURNING.includes(guide);
+      const rotate = () => setGuideRotation((turns) => (turns + 1) % 4);
       return (
-        <Strip
-          label="Grid"
-          choices={[{ value: "off", label: "Off" }, ...GUIDES]}
+        <Tiles
+          side="assists"
+          label="Guides"
+          tiles={[
+            { value: "off", label: "Off", art: <NoneArt /> },
+            ...GUIDES.map((g) => ({ ...g, art: <GuideArt guide={g.value} rotation={g.value === guide ? guideRotation : 0} /> })),
+          ]}
           value={guide}
-          onPick={(value) => setGuide(value as Guide | "off")}
+          // Tapping the chosen triangle or spiral again turns it, as Rotate does.
+          onPick={(value) => (value === guide && turns ? rotate() : setGuide(value as Guide | "off"))}
           onClose={close}
-          extra={
-            guide !== "off" &&
-            TURNING.includes(guide) && (
-              <button className="add" onClick={() => setGuideRotation((turns) => (turns + 1) % 4)}>
-                Rotate
-              </button>
-            )
+          action={
+            <button className="action" disabled={!turns} onClick={rotate}>
+              <Icon name="rotate" />
+              Rotate
+            </button>
           }
         />
       );
     }
     if (picker === "crop") {
       return (
-        <Strip
+        <Tiles
+          side="assists"
           label="Crop"
-          choices={[{ value: "off", label: "Off" }, ...RATIOS.map((ratio) => ({ value: ratio, label: ratio }))]}
+          tiles={[
+            { value: "off", label: "Off", art: <NoneArt /> },
+            ...RATIOS.map((ratio) => ({ value: ratio, label: ratio, art: <CropArt ratio={ratio} /> })),
+          ]}
           value={crop}
           onPick={(value) => setCrop(value as Ratio | "off")}
           onClose={close}
@@ -165,9 +189,10 @@ export default function App() {
     }
     if (picker === "peaking") {
       return (
-        <Strip
+        <Tiles
+          side="assists"
           label="Peaking"
-          choices={PEAKING_CHOICES}
+          tiles={PEAKING_CHOICES}
           value={peakingChoice}
           onPick={(value) => setPeakingChoice(value as Peaking | "off")}
           onClose={close}
@@ -176,11 +201,10 @@ export default function App() {
     }
     const state = picker && exposure.states[picker];
     if (!picker || !state || state.choices.length === 0) return null;
-    const values = state.choices.includes(state.value) ? state.choices : [state.value, ...state.choices];
     return (
-      <Strip
+      <Scale
         label={SETTINGS.find((s) => s.key === picker)!.label}
-        choices={values.map((value) => ({ value, label: value }))}
+        values={state.choices.includes(state.value) ? state.choices : [state.value, ...state.choices]}
         value={state.value}
         onPick={(value) => void exposure.change(picker, value)}
         onClose={close}
@@ -201,9 +225,10 @@ export default function App() {
 
   // Where the picture sits on screen, for what is drawn over it.
   const picture = canvas.current && pictureBox(canvas.current);
+  const roll = details?.level ? `${details.level.roll.toFixed(1)}°` : "On";
 
   return (
-    <main className="app">
+    <main className={`app${folded.assists ? " fold-assists" : ""}${folded.camera ? " fold-camera" : ""}`}>
       <section
         className="stage"
         onClick={(e) => {
@@ -216,42 +241,13 @@ export default function App() {
       >
         <canvas ref={canvas} className="view" />
         {shot.state === "done" && <div className="flash" />}
-
-        {running && (
-          <StatusBadge
-            status={status}
-            open={connectionOpen}
-            onToggle={() => {
-              setPicker(null);
-              setConnectionOpen((open) => !open);
-            }}
-          />
-        )}
         {details && <AfFrames frames={details.afFrames} box={picture} />}
         {live && crop !== "off" && picture && <Crop box={picture} ratio={crop} />}
         {live && guide !== "off" && (
           // Inside the crop when there is one: the guides are for the final frame.
           <Composition guide={guide} rotation={guideRotation} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
-        {live && levelOn && <Level level={details?.level ?? null} />}
-        {live && histogramOn && <Histogram counts={details?.histogram ?? null} />}
-        {live && (
-          <div className="stage-tools">
-            <button aria-pressed={crop !== "off"} aria-expanded={picker === "crop"} onClick={() => toggle("crop")}>
-              Crop
-            </button>
-            <button aria-pressed={guide !== "off"} aria-expanded={picker === "grid"} onClick={() => toggle("grid")}>
-              Grid
-            </button>
-            <button aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
-              Level
-            </button>
-            <button aria-pressed={histogramOn} onClick={() => setHistogramOn((on) => !on)}>
-              Histogram
-            </button>
-            {status.state === "live" && <MagnifyButtons camera={status.camera} magnify={magnify} />}
-          </div>
-        )}
+        {live && levelOn && <Level level={details?.level ?? null} box={picture} />}
         {errors && errors !== dismissed && (
           <button className="errors" onClick={() => setDismissed(errors)} title="Tap to hide">
             {errors}
@@ -279,18 +275,87 @@ export default function App() {
             }}
           />
         )}
-        {strip()}
       </section>
 
-      <nav className="rail">
-        <div className="chips">
-          {SETTINGS.map(({ key, label }) => {
+      {/* Left thumb: the status, and the aids drawn over the picture. */}
+      <aside className="band assists">
+        {running && (
+          <StatusBadge
+            status={status}
+            battery={battery}
+            open={connectionOpen}
+            onToggle={() => {
+              setPicker(null);
+              setConnectionOpen((open) => !open);
+            }}
+          />
+        )}
+        <div className="tools">
+          <Tool
+            icon="zebra"
+            label="Zebra"
+            value={zebraOn ? `${zebraPercent}%` : "Off"}
+            on={zebraOn}
+            open={picker === "zebra"}
+            onClick={() => toggle("zebra")}
+          />
+          <Tool
+            icon="peaking"
+            label="Peaking"
+            value={PEAKING_CHOICES.find((c) => c.value === peakingChoice)!.label}
+            on={peakingChoice !== "off"}
+            open={picker === "peaking"}
+            onClick={() => toggle("peaking")}
+          />
+          <Tool
+            icon="guides"
+            label="Guides"
+            value={GUIDES.find((g) => g.value === guide)?.label ?? "Off"}
+            on={guide !== "off"}
+            open={picker === "grid"}
+            onClick={() => toggle("grid")}
+          />
+          <Tool
+            icon="crop"
+            label="Crop"
+            value={crop === "off" ? "Off" : crop}
+            on={crop !== "off"}
+            open={picker === "crop"}
+            onClick={() => toggle("crop")}
+          />
+          <Tool
+            icon="level"
+            label="Level"
+            value={levelOn ? roll : "Off"}
+            on={levelOn}
+            disabled={!live}
+            onClick={() => setLevelOn((on) => !on)}
+          />
+          <Tool
+            icon="histogram"
+            label="Histogram"
+            value={histogramOn ? "On" : "Off"}
+            on={histogramOn}
+            disabled={!live}
+            onClick={() => setHistogramOn((on) => !on)}
+          />
+          <MagnifyTools camera={status?.state === "live" ? status.camera : null} magnify={magnify} />
+        </div>
+        <FoldButton side="assists" folded={folded.assists} onFold={fold} />
+      </aside>
+
+      {live && histogramOn && <Histogram counts={details?.histogram ?? null} box={picture} />}
+      {choices()}
+
+      {/* Right thumb: the camera. */}
+      <aside className="band camera">
+        <div className="settings">
+          {CAMERA_ORDER.map((key) => {
             const state = exposure.states[key];
             return (
-              <Chip
+              <Setting
                 key={key}
-                kind="exposure"
-                label={label}
+                label={SETTINGS.find((s) => s.key === key)!.label}
                 value={state?.value ?? "–"}
                 open={picker === key}
                 disabled={!state || state.choices.length === 0}
@@ -298,52 +363,38 @@ export default function App() {
               />
             );
           })}
-          <Chip
-            kind="look"
+          <Setting
             label="Look"
             value={looks.chosen ? lookLabel(looks.chosen) : "None"}
             open={picker === "look"}
             onClick={() => toggle("look")}
-          />
-          <Chip
-            kind="zebra"
-            label="Zebra"
-            value={zebraOn ? `${zebraPercent}%` : "Off"}
-            open={picker === "zebra"}
-            onClick={() => toggle("zebra")}
-          />
-          <Chip
-            kind="peaking"
-            label="Peaking"
-            value={PEAKING_CHOICES.find((c) => c.value === peakingChoice)!.label}
-            open={picker === "peaking"}
-            onClick={() => toggle("peaking")}
           />
         </div>
         <div className="actions">
           <FocusButton focus={exposure.focus} disabled={!live} />
           <ShootButton state={shot.state} disabled={!live} onShoot={() => void shot.shoot()} />
         </div>
-      </nav>
+        <FoldButton side="camera" folded={folded.camera} onFold={fold} />
+      </aside>
     </main>
   );
 }
 
-type ChipProps = {
-  kind: string;
-  label: string;
-  value: string;
-  open: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-};
-
-/** A setting's name and value; tapping it opens its strip of choices. */
-function Chip({ kind, label, value, open, disabled, onClick }: ChipProps) {
+/** On a large screen the bands sit over the picture's edges: this tucks one away, or brings it back. */
+function FoldButton({ side, folded, onFold }: { side: Side; folded: boolean; onFold: (side: Side) => void }) {
+  const pointsRight = (side === "assists") === folded;
   return (
-    <button className={`chip ${kind}`} aria-expanded={open} disabled={disabled} onClick={onClick}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <button className="fold" aria-label={folded ? "Show the controls" : "Hide the controls"} onClick={() => onFold(side)}>
+      <Icon name={pointsRight ? "right" : "left"} />
     </button>
+  );
+}
+
+/** The tile drawing for Off: an empty frame. */
+function NoneArt() {
+  return (
+    <svg className="art" viewBox="-1 -1 32 22" aria-hidden="true">
+      <rect className="faint" width={30} height={20} rx={1.5} />
+    </svg>
   );
 }
