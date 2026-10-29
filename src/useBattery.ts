@@ -15,10 +15,18 @@ export function useBattery(live: boolean) {
     setPercent(null);
     if (!live) return;
     let running = true;
+    let timer = 0;
+    let wake = () => {};
     void (async () => {
       let wait = FIRST_MS;
       while (running) {
-        await new Promise((resolve) => setTimeout(resolve, wait));
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+          timer = window.setTimeout(resolve, wait);
+        });
+        // Never ask once live view has stopped: after a power cycle that request
+        // would open the camera's new CCAPI session before GET /ccapi (Err 70).
+        if (!running) break;
         wait = EVERY_MS;
         const next = await camera.battery().catch(() => undefined);
         if (running && next !== undefined) setPercent(next);
@@ -26,6 +34,8 @@ export function useBattery(live: boolean) {
     })();
     return () => {
       running = false;
+      clearTimeout(timer);
+      wake();
     };
   }, [live]);
 
