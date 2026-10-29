@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::camera::{AfFrame, AfState, Battery, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
 use crate::canon_codes::{self, PICTURE_STYLE_NEUTRAL};
 use crate::ccapi::ExposureSetting;
-use crate::ptpip::{self, Session};
+use crate::ptpip::{self, AfBox, AfZones, Session};
 
 /// The first connect waits this long for the pairing to be confirmed on the camera.
 const PAIRING_WAIT: Duration = Duration::from_secs(30);
@@ -250,9 +250,11 @@ struct Latest {
     zoom: u32,
     /// Luminance, 256 levels (block 0x11 has R, G and B too).
     histogram: Option<Vec<u32>>,
-    /// What AF is doing, as CCAPI's AF frame status. Not kept from frame to
-    /// frame: the camera sends it with every frame, 0 while AF isn't running.
-    af_status: Option<u32>,
+    /// What AF is doing and where it found focus. Not kept from frame to
+    /// frame: the camera sends it with every frame, zeros while AF isn't running.
+    af: Option<AfZones>,
+    /// The camera's own AF frames, likewise sent with every frame while it has any.
+    af_boxes: Vec<AfBox>,
 }
 
 impl Latest {
@@ -262,7 +264,8 @@ impl Latest {
         self.sensor = ptpip::viewfinder_sensor(data).or(self.sensor);
         self.af_corner = ptpip::viewfinder_af_corner(data).or(self.af_corner);
         self.zoom_area = ptpip::viewfinder_zoom_area(data).or(self.zoom_area);
-        self.af_status = ptpip::viewfinder_af_status(data);
+        self.af = ptpip::viewfinder_af(data);
+        self.af_boxes = ptpip::viewfinder_af_frames(data);
         if let Some(histogram) = ptpip::viewfinder_histogram(data) {
             self.histogram = Some(histogram.luminance.to_vec());
         }
@@ -291,9 +294,57 @@ impl Latest {
         }
     }
 
-    /// The AF point, in the middle of its magnify area, as a frame on the
-    /// picture, green once One-Shot holds focus and blue while Servo tracks.
+    /// As on the camera: its own AF frames (while it follows a subject) and a
+    /// frame around each group of AF zones in focus, green while One-Shot
+    /// holds focus, blue while Servo tracks; else the AF point.
     fn af_frames(&self) -> Vec<AfFrame> {
+        let state = AfState::from_status(self.af.as_ref().map(|af| u64::from(af.status)));
+        let mut frames = self.box_frames();
+        if let Some(af) = self.af.as_ref().filter(|af| af.status != 0) {
+            frames.extend(self.zone_frames(af, state));
+        }
+        if frames.is_empty() { self.point_frame(state) } else { frames }
+    }
+
+    /// The camera's own AF frames on the picture, but for the whole AF area
+    /// (not drawn, as over CCAPI).
+    fn box_frames(&self) -> Vec<AfFrame> {
+        let Some(picture) = self.picture() else { return Vec::new() };
+        self.af_boxes
+            .iter()
+            .map(|af| (box_state(af.status), af.area))
+            .filter(|&(state, _)| state != AfState::Area)
+            .map(|(state, [x, y, width, height])| AfFrame {
+                x: ((x as f64 - picture.x) / picture.width) as f32,
+                y: ((y as f64 - picture.y) / picture.height) as f32,
+                width: (width as f64 / picture.width) as f32,
+                height: (height as f64 / picture.height) as f32,
+                state,
+            })
+            .collect()
+    }
+
+    /// The groups of zones in focus, each as the frame around it, on the picture.
+    fn zone_frames(&self, af: &AfZones, state: AfState) -> Vec<AfFrame> {
+        let (Some(picture), Some([sensor_width, sensor_height])) = (self.picture(), self.sensor) else {
+            return Vec::new();
+        };
+        let zone = [sensor_width as f64 / af.grid[0] as f64, sensor_height as f64 / af.grid[1] as f64];
+        zone_groups(&af.in_focus)
+            .into_iter()
+            .map(|[column, row, columns, rows]| AfFrame {
+                x: ((column as f64 * zone[0] - picture.x) / picture.width) as f32,
+                y: ((row as f64 * zone[1] - picture.y) / picture.height) as f32,
+                width: (columns as f64 * zone[0] / picture.width) as f32,
+                height: (rows as f64 * zone[1] / picture.height) as f32,
+                state,
+            })
+            .filter(|frame| frame.x < 1.0 && frame.y < 1.0 && frame.x + frame.width > 0.0 && frame.y + frame.height > 0.0)
+            .collect()
+    }
+
+    /// The AF point, in the middle of its magnify area, as a frame on the picture.
+    fn point_frame(&self, state: AfState) -> Vec<AfFrame> {
         let (Some(picture), Some([sensor_width, sensor_height]), Some([left, top])) =
             (self.picture(), self.sensor, self.af_corner)
         else {
@@ -310,9 +361,41 @@ impl Latest {
             y: ((centre[1] - size[1] / 2.0 - picture.y) / picture.height) as f32,
             width: (size[0] / picture.width) as f32,
             height: (size[1] / picture.height) as f32,
-            state: AfState::from_status(self.af_status.map(u64::from)),
+            state,
         }]
     }
+}
+
+/// A frame's state from block 0x8, where the R6 Mark III also gives 18 for
+/// focus held and 34 for the whole AF area in One-Shot (2026-10-29).
+fn box_state(status: u32) -> AfState {
+    match status {
+        18 => AfState::Focused,
+        34 => AfState::Area,
+        other => AfState::from_status(Some(u64::from(other))),
+    }
+}
+
+/// Zones touching one another (sides or corners) as one group: column, row,
+/// columns and rows of the box around each, in the order first found.
+fn zone_groups(zones: &[[u32; 2]]) -> Vec<[u32; 4]> {
+    let mut left: Vec<[u32; 2]> = zones.to_vec();
+    let mut groups = Vec::new();
+    while let Some(first) = left.pop() {
+        let (mut group, mut next) = (vec![first], vec![first]);
+        while let Some([column, row]) = next.pop() {
+            let (near, far): (Vec<_>, Vec<_>) =
+                left.into_iter().partition(|&[c, r]| c.abs_diff(column) <= 1 && r.abs_diff(row) <= 1);
+            left = far;
+            group.extend(&near);
+            next.extend(near);
+        }
+        let low = |i: usize| group.iter().map(|zone| zone[i]).min().unwrap_or(0);
+        let high = |i: usize| group.iter().map(|zone| zone[i]).max().unwrap_or(0);
+        groups.push([low(0), low(1), high(0) - low(0) + 1, high(1) - low(1) + 1]);
+    }
+    groups.reverse();
+    groups
 }
 
 /// A part of the sensor, in sensor pixels.
@@ -483,22 +566,90 @@ mod tests {
         assert_eq!(latest.af_frames(), vec![]);
     }
 
+    /// Block 0x1c: status, six words not understood, a 39 x 27 grid, then a
+    /// bit per AF zone (row by row, lowest bit first) set where in focus.
+    fn af_block(status: u32, zones: &[[u32; 2]]) -> Vec<u32> {
+        let mut words = vec![status, 0xa5, 0x19, 0xaa, 0xaa, 0xaa, 0xaa, 39, 27];
+        words.resize(44, 0);
+        for [column, row] in zones {
+            let bit = row * 39 + column;
+            words[9 + bit as usize / 32] |= 1 << (bit % 32);
+        }
+        words
+    }
+
     #[test]
-    fn the_af_frame_shows_lock_and_tracking_as_over_ccapi() {
-        let point = [(0x0e, &[6960, 4640][..]), (0x05, &[2784, 1856][..])];
-        let state = |status: u32| {
-            let mut latest = Latest::default();
-            latest.take_in(&reply(&[point[0], point[1], (0x1c, &[status, 0xa5, 0x19])]));
-            latest.af_frames()[0].state
-        };
-        assert_eq!(state(17), AfState::Focused); // One-Shot holding focus
-        assert_eq!(state(20), AfState::Tracking); // Servo
-        assert_eq!(state(0), AfState::Waiting); // AF not running, or found nothing
-        // Once AF stops, a frame without the block isn't left showing focus.
+    fn the_af_frames_are_the_zones_in_focus_as_on_the_camera() {
+        let sensor = (0x0e, &[6960, 4640][..]);
+        let point = (0x05, &[2784, 1856][..]);
+        // One-Shot holding focus on a pole (a tall strip of zones) and on a
+        // single zone in the corner: a green frame around each.
+        let strip: Vec<[u32; 2]> = (8..20).flat_map(|row| [[10, row], [11, row]]).collect();
+        let mut zones = strip.clone();
+        zones.push([38, 26]);
         let mut latest = Latest::default();
-        latest.take_in(&reply(&[point[0], point[1], (0x1c, &[17])]));
-        latest.take_in(&reply(&[point[0], point[1]]));
-        assert_eq!(latest.af_frames()[0].state, AfState::Waiting);
+        latest.take_in(&reply(&[sensor, point, (0x1c, &af_block(17, &zones))]));
+        let zone = |column: f32, row: f32, columns: f32, rows: f32, state| AfFrame {
+            x: column / 39.0,
+            y: row / 27.0,
+            width: columns / 39.0,
+            height: rows / 27.0,
+            state,
+        };
+        let close = |a: &[AfFrame], b: &[AfFrame]| {
+            a.len() == b.len()
+                && a.iter().zip(b).all(|(a, b)| {
+                    a.state == b.state
+                        && [a.x - b.x, a.y - b.y, a.width - b.width, a.height - b.height].iter().all(|d| d.abs() < 1e-6)
+                })
+        };
+        let focused = [zone(10.0, 8.0, 2.0, 12.0, AfState::Focused), zone(38.0, 26.0, 1.0, 1.0, AfState::Focused)];
+        assert!(close(&latest.af_frames(), &focused), "{:?}", latest.af_frames());
+        // A diagonal edge joins into one frame; Servo draws it blue.
+        latest.take_in(&reply(&[sensor, point, (0x1c, &af_block(20, &[[5, 5], [6, 6], [7, 7]]))]));
+        assert!(close(&latest.af_frames(), &[zone(5.0, 5.0, 3.0, 3.0, AfState::Tracking)]), "{:?}", latest.af_frames());
+        // AF stopped (all zeros), or the block missing: the AF point, waiting.
+        let waiting = [AfFrame { x: 0.45, y: 0.45, width: 0.1, height: 0.1, state: AfState::Waiting }];
+        latest.take_in(&reply(&[sensor, point, (0x1c, &af_block(0, &[]))]));
+        assert!(close(&latest.af_frames(), &waiting), "{:?}", latest.af_frames());
+        latest.take_in(&reply(&[sensor, point, (0x1c, &af_block(17, &zones))]));
+        latest.take_in(&reply(&[sensor, point]));
+        assert!(close(&latest.af_frames(), &waiting), "{:?}", latest.af_frames());
+        // Holding focus with no zones given: the AF point, green.
+        latest.take_in(&reply(&[sensor, point, (0x1c, &[17])]));
+        assert_eq!(latest.af_frames()[0].state, AfState::Focused);
+        // At x5 the picture is the magnify area: zones off it aren't drawn.
+        latest.take_in(&reply(&[sensor, point, (0x0d, &[2784, 1856, 1392, 928]), (0x1c, &af_block(17, &[[19, 13], [0, 0]]))]));
+        latest.zoom = 5;
+        let frames = latest.af_frames();
+        assert_eq!(frames.len(), 1, "{frames:?}");
+        assert!((frames[0].width - 5.0 / 39.0).abs() < 1e-6, "{frames:?}"); // a 39th of the sensor, which is 5 pictures wide
+    }
+
+    #[test]
+    fn the_camera_s_own_af_frame_is_drawn_while_it_tracks_a_subject() {
+        // After a tap the R6 Mark III follows a subject with one frame (block
+        // 0x8): 48 waiting, 17 or 18 once focus is held (2026-10-29).
+        let sensor = (0x0e, &[6960, 4640][..]);
+        let point = (0x05, &[2784, 1856][..]);
+        let frame = |status: u32| [1, status, 1, 696, 464, 1392, 928];
+        let drawn = |status: u32| {
+            let mut latest = Latest::default();
+            latest.take_in(&reply(&[sensor, point, (0x08, &frame(status)), (0x1c, &af_block(0, &[]))]));
+            latest.af_frames()
+        };
+        let at = |state| vec![AfFrame { x: 0.1, y: 0.1, width: 0.2, height: 0.2, state }];
+        assert_eq!(drawn(0x30), at(AfState::Waiting));
+        assert_eq!(drawn(0x11), at(AfState::Focused));
+        assert_eq!(drawn(0x12), at(AfState::Focused));
+        // The whole AF area (34 One-Shot, 32 Servo) isn't drawn, as over CCAPI:
+        // the AF point instead, or the zones in focus.
+        let waiting = vec![AfFrame { x: 0.45, y: 0.45, width: 0.1, height: 0.1, state: AfState::Waiting }];
+        assert_eq!(drawn(0x22), waiting);
+        let mut latest = Latest::default();
+        latest.take_in(&reply(&[sensor, point, (0x08, &frame(0x20)), (0x1c, &af_block(20, &[[0, 0]]))]));
+        let frames = latest.af_frames();
+        assert_eq!((frames.len(), frames[0].state), (1, AfState::Tracking), "{frames:?}");
     }
 
     #[test]

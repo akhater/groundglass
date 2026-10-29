@@ -106,7 +106,7 @@ pub struct SettingState {
 
 pub enum Camera {
     Ccapi(ccapi::Camera),
-    Ptp(eos::Camera),
+    Ptp(Box<eos::Camera>),
 }
 
 impl Camera {
@@ -120,7 +120,7 @@ impl Camera {
         match ptpip::device_description(host).map_or(Mode::Ccapi, |description| mode(&description)) {
             Mode::Ptp => {
                 on_pairing();
-                eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(camera), info))
+                eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(Box::new(camera)), info))
             }
             Mode::Ccapi => ccapi::Camera::connect(address).map(|(camera, info)| (Self::Ccapi(camera), info)),
         }
