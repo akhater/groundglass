@@ -4,6 +4,14 @@ Newest first.
 
 ## 26.44.3 - unreleased
 
+### Added
+
+- **EOS Utility mode:** live view also works with the camera's Wi-Fi set to
+  "Connect to EOS Utility" (PTP/IP), with looks, zebra, peaking, crop, grid,
+  level, shoot and AF-ON. Groundglass asks the camera which Wi-Fi function it
+  runs, so the address field works the same for both. The first time, press
+  OK on the camera to pair. Exposure and tap to focus are CCAPI only for now.
+
 ## 26.44.2 - 2026-10-28
 
 ### Added

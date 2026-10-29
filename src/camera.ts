@@ -3,12 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type CameraInfo = { model: string; firmware: string };
 
-/** Mirrors `ccapi::CameraError`. */
+/** Mirrors `camera::CameraError`. */
 export type CameraError =
   | { kind: "Unreachable"; detail: string }
   | { kind: "LiveViewOff" }
   | { kind: "Busy" }
-  | { kind: "Refused"; detail: string };
+  | { kind: "Refused"; detail: string }
+  | { kind: "PairingRefused" };
 
 export const connect = (address: string) => invoke<CameraInfo>("connect", { address });
 
@@ -39,13 +40,13 @@ export const setExposureSetting = (setting: ExposureSetting, value: string) =>
 /** Moves the AF point to (x, y), fractions across the picture. */
 export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
 
-/** Mirrors `ccapi::Level`: degrees from level. */
+/** Mirrors `camera::Level`: degrees from level. */
 export type Level = { roll: number; pitch: number };
-/** Mirrors `ccapi::AfState`. */
+/** Mirrors `camera::AfState`. */
 export type AfState = "waiting" | "focused" | "tracking" | "area";
-/** Mirrors `ccapi::AfFrame`: fractions of the picture. */
+/** Mirrors `camera::AfFrame`: fractions of the picture. */
 export type AfFrame = { x: number; y: number; width: number; height: number; state: AfState };
-/** Mirrors `ccapi::LiveDetails`. */
+/** Mirrors `camera::LiveDetails`. */
 export type LiveDetails = { level: Level | null; afFrames: AfFrame[] };
 /** The level and AF frames, while live. */
 export const liveDetails = () => invoke<LiveDetails>("live_details");
@@ -75,6 +76,8 @@ export function describe(error: unknown): string {
       return "The camera is busy.";
     case "Refused":
       return `The camera refused: ${e.detail}`;
+    case "PairingRefused":
+      return "The camera refused to pair: choose Groundglass again in its Wi-Fi menu.";
     default:
       return String(error);
   }

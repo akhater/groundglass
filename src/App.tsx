@@ -183,7 +183,13 @@ export default function App() {
     );
   }
 
-  const errors = [status?.state === "lost" ? status.message : "", shot.error, exposure.error, looks.error, tapFocus.error]
+  const errors = [
+    status?.state === "lost" ? status.message : status?.state === "connecting" ? (status.hint ?? "") : "",
+    shot.error,
+    exposure.error,
+    looks.error,
+    tapFocus.error,
+  ]
     .filter(Boolean)
     .join("\n");
 

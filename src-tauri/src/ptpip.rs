@@ -3,9 +3,10 @@
 //! what a read-only check needs: pair, open a session, read what the camera
 //! supports. Research and references: BACKLOG.md, "PTP/IP".
 
-use crate::ccapi::Level;
+use crate::camera::Level;
+use std::fmt;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
 const PORT: u16 = 15740;
@@ -64,6 +65,46 @@ mod packet {
     pub const END_DATA: u32 = 12;
 }
 
+/// What went wrong talking to the camera.
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// No connection, or it failed or timed out.
+    Connection(String),
+    /// The camera turned the pairing down (Init_Fail).
+    PairingRefused,
+    /// The camera can't answer this instant: busy (0x2019), or no live view frame yet (0xA102).
+    Busy,
+    /// The camera answered `operation` with `response` instead of OK.
+    Response { operation: u16, response: u16 },
+    /// The camera sent something this client doesn't expect.
+    Protocol(String),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Connection(detail) | Self::Protocol(detail) => f.write_str(detail),
+            Self::PairingRefused => f.write_str("the camera refused to pair"),
+            Self::Busy => f.write_str("the camera is busy"),
+            Self::Response { operation, response } => {
+                write!(f, "the camera answered 0x{response:04x} to 0x{operation:04x}")
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Connection(error.to_string())
+    }
+}
+
+impl From<Error> for String {
+    fn from(error: Error) -> Self {
+        error.to_string()
+    }
+}
+
 /// What the camera says it can do (PTP DeviceInfo), without its serial number.
 #[derive(Debug, PartialEq)]
 pub struct DeviceInfo {
@@ -86,30 +127,28 @@ pub struct Session {
 impl Session {
     /// Pairs and opens a session. The first time, the camera asks on its screen
     /// to confirm the pairing: up to `pairing_wait` is left for that.
-    pub fn open(host: &str, pairing_wait: Duration) -> Result<Self, String> {
-        let address = (host, PORT)
-            .to_socket_addrs()
-            .map_err(|e| e.to_string())?
-            .next()
-            .ok_or("no address for the camera")?;
+    pub fn open(host: &str, pairing_wait: Duration) -> Result<Self, Error> {
+        let address = socket_address(host, PORT)?;
         discover(address)?;
         let mut command = connect(address)?;
-        command.set_read_timeout(Some(pairing_wait)).map_err(|e| e.to_string())?;
+        command.set_read_timeout(Some(pairing_wait))?;
         send(&mut command, packet::INIT_COMMAND_REQUEST, &init_command_request(&GUID, NAME))?;
         let (kind, ack) = receive(&mut command)?;
         match kind {
             packet::INIT_COMMAND_ACK if ack.len() >= 4 => {}
-            packet::INIT_FAIL => return Err(format!("the camera refused to pair (reason {:?})", ack.get(..4))),
-            other => return Err(format!("unexpected answer to pairing: packet type {other}")),
+            packet::INIT_FAIL => return Err(Error::PairingRefused),
+            other => return Err(Error::Protocol(format!("unexpected answer to pairing: packet type {other}"))),
         }
-        command.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+        command.set_read_timeout(Some(Duration::from_secs(10)))?;
 
         let mut event = connect(address)?;
-        event.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+        event.set_read_timeout(Some(Duration::from_secs(10)))?;
         send(&mut event, packet::INIT_EVENT_REQUEST, &ack[..4])?;
         match receive(&mut event)? {
             (packet::INIT_EVENT_ACK, _) => {}
-            (other, _) => return Err(format!("unexpected answer on the event connection: packet type {other}")),
+            (other, _) => {
+                return Err(Error::Protocol(format!("unexpected answer on the event connection: packet type {other}")));
+            }
         }
 
         // As EOS Utility opens (recorded 2026-10-29): device info first, then
@@ -121,15 +160,20 @@ impl Session {
         Ok(session)
     }
 
-    pub fn device_info(&mut self) -> Result<DeviceInfo, String> {
+    pub fn device_info(&mut self) -> Result<DeviceInfo, Error> {
         let data = self.operation(GET_DEVICE_INFO, &[])?;
-        parse_device_info(&data)
+        parse_device_info(&data).map_err(Error::Protocol)
+    }
+
+    /// How long to wait for each answer from now on (10 s once open).
+    pub fn set_timeout(&mut self, wait: Duration) -> Result<(), Error> {
+        Ok(self.command.set_read_timeout(Some(wait))?)
     }
 
     /// Ends the session. On the R6 Mark III (2026-10-29), live view output off
     /// then CloseSession gave the camera its screen back; open-eos-control's
     /// USB hand-back (remote mode 0, 1, event mode 0) left the screen off.
-    pub fn close(mut self) -> Result<(), String> {
+    pub fn close(mut self) -> Result<(), Error> {
         self.operation(CLOSE_SESSION, &[]).map(|_| ())
     }
 
@@ -137,7 +181,7 @@ impl Session {
     /// Utility sends them after OpenSession (the R6 Mark III refuses remote mode
     /// 1 there), then as open-eos-control does over USB: EVF mode 1, EVF output
     /// to the computer (2).
-    pub fn start_live_view(&mut self) -> Result<(), String> {
+    pub fn start_live_view(&mut self) -> Result<(), Error> {
         self.operation(SET_REMOTE_MODE, &[5])?;
         self.operation(SET_EVENT_MODE, &[1])?;
         self.events()?;
@@ -148,29 +192,29 @@ impl Session {
 
     /// Where live view goes while it runs: to us only (2), or to us and the
     /// camera's own screen (3, being tried: the TFT bit plus the computer bit).
-    pub fn live_view_output(&mut self, camera_screen_too: bool) -> Result<(), String> {
+    pub fn live_view_output(&mut self, camera_screen_too: bool) -> Result<(), Error> {
         self.set_property(EVF_OUTPUT_DEVICE, if camera_screen_too { 3 } else { 2 })
     }
 
     /// Live view back to the camera's own screen only (1). Output "none" (0)
     /// sometimes left the R6 Mark III's screen off after the session (2026-10-29).
-    pub fn stop_live_view(&mut self) -> Result<(), String> {
+    pub fn stop_live_view(&mut self) -> Result<(), Error> {
         self.set_property(EVF_OUTPUT_DEVICE, 1)
     }
 
     /// The newest live view frame, or None while the camera has none ready.
-    pub fn frame(&mut self) -> Result<Option<Vec<u8>>, String> {
+    pub fn frame(&mut self) -> Result<Option<Vec<u8>>, Error> {
         Ok(self.viewfinder_data()?.and_then(|data| viewfinder_jpeg(&data).map(<[u8]>::to_vec)))
     }
 
     /// A whole live view reply: the picture and the blocks that come with it
     /// (length, type, body each). None while the camera has none ready.
-    pub fn viewfinder_data(&mut self) -> Result<Option<Vec<u8>>, String> {
+    pub fn viewfinder_data(&mut self) -> Result<Option<Vec<u8>>, Error> {
         let (response, data) = self.transact(GET_VIEWFINDER_DATA, &[0x0020_0000, 0, 0], None)?;
         match response {
             RESPONSE_OK => Ok(Some(data)),
             RESPONSE_BUSY | RESPONSE_NOT_READY => Ok(None),
-            other => Err(format!("the camera answered 0x{other:04x} to a live view frame request")),
+            other => Err(response_error(GET_VIEWFINDER_DATA, other)),
         }
     }
 
@@ -178,7 +222,7 @@ impl Session {
     /// then "Release" (RemoteReleaseOn [3, 0], RemoteReleaseOff [3]). The
     /// press doesn't force focusing either way: being checked that the camera
     /// applies its own shutter-button setting (back-button focus: no AF).
-    pub fn shoot(&mut self) -> Result<(), String> {
+    pub fn shoot(&mut self) -> Result<(), Error> {
         self.operation(REMOTE_RELEASE_ON, &[3, 0])?;
         self.operation(REMOTE_RELEASE_OFF, &[3]).map(|_| ())
     }
@@ -186,43 +230,43 @@ impl Session {
     /// Moves the AF point to (`x`, `y`) in sensor pixels, as touching the
     /// camera's screen does, without focusing (that's AF-ON's job). Sent as
     /// open-eos-control does over USB: TouchAfPosition with [3, x, y].
-    pub fn touch_af(&mut self, x: u32, y: u32) -> Result<(), String> {
+    pub fn touch_af(&mut self, x: u32, y: u32) -> Result<(), Error> {
         self.operation(TOUCH_AF_POSITION, &[3, x, y]).map(|_| ())
     }
 
     /// Back-button focus: DoAf (0x9154) while held, AfCancel (0x9160) on
     /// release, as open-eos-control does over USB.
-    pub fn autofocus(&mut self, held: bool) -> Result<(), String> {
+    pub fn autofocus(&mut self, held: bool) -> Result<(), Error> {
         self.operation(if held { DO_AF } else { AF_CANCEL }, &[]).map(|_| ())
     }
 
     /// Live view magnification: 1 (whole picture), 5 or 10, as EOS Utility
     /// sends it (recorded 2026-10-29).
-    pub fn zoom(&mut self, level: u32) -> Result<(), String> {
+    pub fn zoom(&mut self, level: u32) -> Result<(), Error> {
         self.operation(ZOOM, &[level]).map(|_| ())
     }
 
     /// Where the magnified area sits, in sensor pixels (EOS Utility moved it in
     /// steps of 68 around 2716, 1856 on the R6 Mark III).
-    pub fn zoom_position(&mut self, x: u32, y: u32) -> Result<(), String> {
+    pub fn zoom_position(&mut self, x: u32, y: u32) -> Result<(), Error> {
         self.operation(ZOOM_POSITION, &[x, y]).map(|_| ())
     }
 
     /// Depth of field preview: the lens stops down to the set aperture.
     /// The camera doesn't list this property, but EOS Utility sets it.
-    pub fn depth_of_field_preview(&mut self, on: bool) -> Result<(), String> {
+    pub fn depth_of_field_preview(&mut self, on: bool) -> Result<(), Error> {
         self.set_property(DEPTH_OF_FIELD_PREVIEW, on as u32)
     }
 
     /// Reads (and drops) what the camera has to report. EOS Utility asks
     /// continuously; the camera expects to be asked.
-    pub fn events(&mut self) -> Result<(), String> {
+    pub fn events(&mut self) -> Result<(), Error> {
         self.event_data().map(|_| ())
     }
 
     /// What the camera reports since it was last asked: records of length,
     /// type, body (0xC189 a property's new value), ending with a type 0 record.
-    pub fn event_data(&mut self) -> Result<Vec<u8>, String> {
+    pub fn event_data(&mut self) -> Result<Vec<u8>, Error> {
         let data = self.operation(GET_EVENT_DATA, &[])?;
         self.properties.apply(&data);
         Ok(data)
@@ -235,25 +279,25 @@ impl Session {
     }
 
     /// Sets a camera property (SetDevicePropValueEx, 32-bit value).
-    pub fn set_property(&mut self, property: u32, value: u32) -> Result<(), String> {
+    pub fn set_property(&mut self, property: u32, value: u32) -> Result<(), Error> {
         let (response, _) = self.transact(SET_DEVICE_PROP_VALUE_EX, &[], Some(&property_value(property, value)))?;
         match response {
             RESPONSE_OK => Ok(()),
-            other => Err(format!("the camera answered 0x{other:04x} to setting property 0x{property:04x}")),
+            other => Err(response_error(SET_DEVICE_PROP_VALUE_EX, other)),
         }
     }
 
     /// Runs one operation that sends no data; returns what the camera sends back.
-    fn operation(&mut self, code: u16, params: &[u32]) -> Result<Vec<u8>, String> {
+    fn operation(&mut self, code: u16, params: &[u32]) -> Result<Vec<u8>, Error> {
         match self.transact(code, params, None)? {
             (RESPONSE_OK, data) => Ok(data),
-            (response, _) => Err(format!("the camera answered 0x{response:04x} to 0x{code:04x}")),
+            (response, _) => Err(response_error(code, response)),
         }
     }
 
     /// One operation: sends `out` as its data when given; returns the camera's
     /// response code and any data it sends back.
-    fn transact(&mut self, code: u16, params: &[u32], out: Option<&[u8]>) -> Result<(u16, Vec<u8>), String> {
+    fn transact(&mut self, code: u16, params: &[u32], out: Option<&[u8]>) -> Result<(u16, Vec<u8>), Error> {
         let transaction = self.transaction;
         self.transaction += 1;
         let mut request = operation_request(code, transaction, params);
@@ -279,7 +323,7 @@ impl Session {
                 packet::OPERATION_RESPONSE if payload.len() >= 2 => {
                     return Ok((u16::from_le_bytes([payload[0], payload[1]]), data));
                 }
-                other => return Err(format!("unexpected packet type {other} during 0x{code:04x}")),
+                other => return Err(Error::Protocol(format!("unexpected packet type {other} during 0x{code:04x}"))),
             }
         }
     }
@@ -288,54 +332,83 @@ impl Session {
 /// What EOS Utility does just before it connects (recorded 2026-10-29): ask
 /// the network for Canon cameras, then read the camera's UPnP description.
 /// The camera drops a pairing request without it.
-fn discover(camera: SocketAddr) -> Result<(), String> {
+fn discover(camera: SocketAddr) -> Result<(), Error> {
+    search(camera.ip())?;
+    device_description(&camera.ip().to_string()).map(|_| ())
+}
+
+/// Asks the network for Canon cameras (SSDP M-SEARCH). Sent from the address
+/// that reaches the camera, so that a phone on the camera's hotspot with
+/// mobile data on doesn't send it out over mobile data, and to the camera
+/// directly as well.
+fn search(camera: IpAddr) -> Result<(), Error> {
     let search = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\n\
                   ST: urn:schemas-canon-com:service:ICPO-WFTEOSSystemService:1\r\n\r\n";
-    let udp = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-    udp.send_to(search.as_bytes(), "239.255.255.250:1900").map_err(|e| e.to_string())?;
+    let route = UdpSocket::bind("0.0.0.0:0")?;
+    route.connect((camera, 1900))?; // sends nothing: only picks the local address
+    let udp = UdpSocket::bind((route.local_addr()?.ip(), 0))?;
+    let multicast = udp.send_to(search.as_bytes(), "239.255.255.250:1900");
+    let direct = udp.send_to(search.as_bytes(), (camera, 1900));
+    if let (Err(error), Err(_)) = (multicast, direct) {
+        return Err(error.into());
+    }
     // The answer only tells us what we already know (the camera is there): wait briefly for it.
-    udp.set_read_timeout(Some(Duration::from_millis(1500))).map_err(|e| e.to_string())?;
+    udp.set_read_timeout(Some(Duration::from_millis(1500)))?;
     let mut answer = [0u8; 1024];
     let _ = udp.recv_from(&mut answer);
+    Ok(())
+}
 
-    let http = SocketAddr::new(camera.ip(), 49152);
-    let mut stream = TcpStream::connect_timeout(&http, Duration::from_secs(5)).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+/// The camera's UPnP description (GET /upnp/CameraDevDesc.xml on port
+/// 49152), the whole HTTP answer. It names the camera's Wi-Fi function.
+pub fn device_description(host: &str) -> Result<Vec<u8>, Error> {
+    let http = socket_address(host, 49152)?;
+    let mut stream = TcpStream::connect_timeout(&http, Duration::from_secs(3))?;
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
     let request = format!(
         "GET /upnp/CameraDevDesc.xml HTTP/1.1\r\nUser-Agent: wsCDeviceDetector\r\nHost: {http}\r\n\
          Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
     );
-    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    stream.write_all(request.as_bytes())?;
     let mut description = Vec::new();
-    stream.read_to_end(&mut description).map_err(|e| e.to_string())?;
-    Ok(())
+    stream.read_to_end(&mut description)?;
+    Ok(description)
 }
 
-fn connect(address: SocketAddr) -> Result<TcpStream, String> {
+fn socket_address(host: &str, port: u16) -> Result<SocketAddr, Error> {
+    (host, port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| Error::Connection("no address for the camera".into()))
+}
+
+fn connect(address: SocketAddr) -> Result<TcpStream, Error> {
     let stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))
-        .map_err(|e| format!("can't reach the camera on port {PORT}: {e}"))?;
-    stream.set_nodelay(true).map_err(|e| e.to_string())?;
+        .map_err(|e| Error::Connection(format!("can't reach the camera on port {PORT}: {e}")))?;
+    stream.set_nodelay(true)?;
     Ok(stream)
 }
 
 /// A packet: total length and type (both u32, little-endian), then the payload.
-fn send(stream: &mut TcpStream, kind: u32, payload: &[u8]) -> Result<(), String> {
+fn send(stream: &mut TcpStream, kind: u32, payload: &[u8]) -> Result<(), Error> {
     let mut bytes = ((8 + payload.len()) as u32).to_le_bytes().to_vec();
     bytes.extend_from_slice(&kind.to_le_bytes());
     bytes.extend_from_slice(payload);
-    stream.write_all(&bytes).map_err(|e| e.to_string())
+    Ok(stream.write_all(&bytes)?)
 }
 
-fn receive(stream: &mut TcpStream) -> Result<(u32, Vec<u8>), String> {
+fn receive(stream: &mut TcpStream) -> Result<(u32, Vec<u8>), Error> {
     let mut header = [0u8; 8];
-    stream.read_exact(&mut header).map_err(|e| format!("no answer from the camera: {e}"))?;
+    stream
+        .read_exact(&mut header)
+        .map_err(|e| Error::Connection(format!("no answer from the camera: {e}")))?;
     let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as usize;
     let kind = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     if !(8..=MAX_PACKET).contains(&length) {
-        return Err(format!("bad packet length {length}"));
+        return Err(Error::Protocol(format!("bad packet length {length}")));
     }
     let mut payload = vec![0; length - 8];
-    stream.read_exact(&mut payload).map_err(|e| e.to_string())?;
+    stream.read_exact(&mut payload)?;
     Ok((kind, payload))
 }
 
@@ -405,6 +478,14 @@ impl Properties {
     }
 }
 
+/// An answer other than OK to `operation`.
+fn response_error(operation: u16, response: u16) -> Error {
+    match response {
+        RESPONSE_BUSY | RESPONSE_NOT_READY => Error::Busy,
+        _ => Error::Response { operation, response },
+    }
+}
+
 /// SetDevicePropValueEx data: total length, property code, value.
 fn property_value(property: u32, value: u32) -> [u8; 12] {
     let mut out = [0u8; 12];
@@ -416,7 +497,7 @@ fn property_value(property: u32, value: u32) -> [u8; 12] {
 
 /// The JPEG in a GetViewFinderData reply: blocks of length, type, body; the
 /// picture is type 1 (or 11).
-fn viewfinder_jpeg(data: &[u8]) -> Option<&[u8]> {
+pub fn viewfinder_jpeg(data: &[u8]) -> Option<&[u8]> {
     viewfinder_block(data, 0x01).or_else(|| viewfinder_block(data, 0x0b))
 }
 
@@ -556,6 +637,13 @@ mod tests {
             operation_request(0x1002, 0, &[1]),
             vec![1, 0, 0, 0, 0x02, 0x10, 0, 0, 0, 0, 1, 0, 0, 0]
         );
+    }
+
+    #[test]
+    fn busy_answers_are_busy() {
+        assert_eq!(response_error(0x9128, 0x2019), Error::Busy);
+        assert_eq!(response_error(0x9116, 0xa102), Error::Busy);
+        assert_eq!(response_error(0x9114, 0x2002), Error::Response { operation: 0x9114, response: 0x2002 });
     }
 
     #[test]
