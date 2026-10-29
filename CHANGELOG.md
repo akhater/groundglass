@@ -33,6 +33,8 @@ Newest first.
 
 - **Picture after stopping:** the picture goes black when live view stops,
   the app is hidden or the camera is lost, instead of keeping the last frame.
+- **Level on a dark picture:** the roll and tilt tracks have a light edge, so
+  they show on dark scenes too.
 
 ## 26.44.3 - 2026-10-29
 
