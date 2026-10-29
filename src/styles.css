@@ -673,8 +673,9 @@ button:disabled {
   fill: rgb(255 255 255 / 0.75);
 }
 
-/* Crop, Grid, Level, Histogram (and x5, x10, DOF in EOS Utility mode), over the top
-   right of the picture; on a narrow screen they wrap clear of the status badge. */
+/* Crop, Grid, Level, Histogram, x5, x10 and DOF (dimmed outside EOS Utility
+   mode), over the top right of the picture; on a narrow screen they wrap clear
+   of the status badge. */
 .stage-tools {
   position: absolute;
   top: calc(10px + env(safe-area-inset-top));
@@ -693,6 +694,10 @@ button:disabled {
   border-radius: 18px;
   background: var(--scrim);
   font-size: 0.85rem;
+}
+
+.stage-tools button:disabled {
+  opacity: 0.45;
 }
 
 .stage-tools button[aria-pressed="true"] {
