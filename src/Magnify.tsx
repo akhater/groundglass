@@ -1,4 +1,4 @@
-// x5 / x10 magnification and depth of field preview, shown only where the
+// x5 / x10 magnification and depth of field preview, usable only where the
 // camera has them (EOS Utility mode). Both go back to off whenever live view
 // stops or restarts, as the camera does.
 import { useEffect, useState, type RefObject } from "react";
@@ -45,20 +45,27 @@ export function useMagnify(live: boolean, zoom: RefObject<camera.Zoom>) {
 
 type Props = { camera: camera.CameraInfo; magnify: ReturnType<typeof useMagnify> };
 
+/** Dimmed where the camera can't (CCAPI mode), so they are there to find. */
 export function MagnifyButtons({ camera: info, magnify }: Props) {
   return (
     <>
-      {info.zoom &&
-        ([5, 10] as const).map((level) => (
-          <button key={level} aria-pressed={magnify.level === level} onClick={() => void magnify.magnify(level)}>
-            ×{level}
-          </button>
-        ))}
-      {info.depthOfFieldPreview && (
-        <button aria-pressed={magnify.preview} onClick={() => void magnify.togglePreview()}>
-          DOF
+      {([5, 10] as const).map((level) => (
+        <button
+          key={level}
+          disabled={!info.zoom}
+          aria-pressed={magnify.level === level}
+          onClick={() => void magnify.magnify(level)}
+        >
+          ×{level}
         </button>
-      )}
+      ))}
+      <button
+        disabled={!info.depthOfFieldPreview}
+        aria-pressed={magnify.preview}
+        onClick={() => void magnify.togglePreview()}
+      >
+        DOF
+      </button>
     </>
   );
 }
