@@ -1,3 +1,4 @@
+pub mod canon_codes;
 pub mod ccapi;
 mod luts;
 pub mod ptpip;
