@@ -71,7 +71,9 @@ export default function App() {
 
   const looks = useLooks();
   const zoom = useRef<camera.Zoom>(1);
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking, zoom });
+  /** Quarter turns clockwise that show the picture upright: portrait shooting, from the camera's roll. */
+  const turnsRef = useRef(0);
+  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
@@ -85,7 +87,13 @@ export default function App() {
   /** Quarter turns of the triangle or spiral, 0..3. */
   const [guideRotation, setGuideRotation] = useState(0);
   const [crop, setCrop] = useState<Ratio | "off">("off");
-  const details = useLiveDetails(live);
+  /** Rotation lock: the picture keeps its turn whatever the camera does. */
+  const [rotationLocked, setRotationLocked] = useState(false);
+  const locked = useRef(false);
+  locked.current = rotationLocked;
+  const details = useLiveDetails(live, locked);
+  const turns = details?.turns ?? 0;
+  turnsRef.current = turns;
   const battery = useBattery(live);
   const tapFocus = useTapFocus(canvas);
   /** Large screens only, where the bands sit over the picture: a band tucked away. */
@@ -251,11 +259,11 @@ export default function App() {
     .join("\n");
 
   // Where the picture sits on screen, for what is drawn over it.
-  const picture = canvas.current && pictureBox(canvas.current);
+  const picture = canvas.current && pictureBox(canvas.current, turns);
   const roll = details?.level ? `${details.level.roll.toFixed(1)}°` : "On";
 
   return (
-    <main className={`app${folded.assists ? " fold-assists" : ""}${folded.camera ? " fold-camera" : ""}`}>
+    <main className={`app${folded.assists ? " fold-assists" : ""}${folded.camera ? " fold-camera" : ""}${turns % 2 ? " tall" : ""}`}>
       <section
         className="stage"
         onClick={(e) => {
@@ -263,7 +271,7 @@ export default function App() {
           // A tap on the picture closes whatever is open over it; with nothing
           // open, it moves the camera's AF point there.
           if (picker || connectionOpen) closeAll();
-          else if (live) void tapFocus.focusAt(e);
+          else if (live) void tapFocus.focusAt(e, turns);
         }}
       >
         <canvas ref={canvas} className="view" />
@@ -272,7 +280,8 @@ export default function App() {
         {live && crop !== "off" && picture && <Crop box={picture} ratio={crop} />}
         {live && guide !== "off" && (
           // Inside the crop when there is one: the guides are for the final frame.
-          <Composition guide={guide} rotation={guideRotation} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
+          // They turn with the picture, so a spiral stays where it was in the scene.
+          <Composition guide={guide} rotation={guideRotation + turns} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} box={picture} />}
         {errors && errors !== dismissed ? (
@@ -373,6 +382,13 @@ export default function App() {
             onClick={() => setHistogramOn((on) => !on)}
           />
           <MagnifyTools camera={status?.state === "live" ? status.camera : null} magnify={magnify} />
+          <Tool
+            icon={rotationLocked ? "rotationLocked" : "autoRotate"}
+            label="Rotation lock"
+            on={rotationLocked}
+            disabled={!live}
+            onClick={() => setRotationLocked((on) => !on)}
+          />
         </div>
         <FoldButton side="assists" folded={folded.assists} onFold={fold} />
       </aside>

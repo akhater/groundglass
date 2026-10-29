@@ -21,11 +21,18 @@
 import { parseCube, type Cube } from "./cube";
 import conversionText from "./luts/r6iii-neutral-to-linear.cube?raw";
 
+// `turns`: quarter turns clockwise the picture is shown at (portrait shooting);
+// uv is where each spot on the canvas comes from on the sensor (orientation.rs, sensor_point).
 const VERTEX = `#version 300 es
 in vec2 corner;
+uniform int turns;
 out vec2 uv;
 void main() {
-  uv = vec2(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
+  vec2 shown = vec2(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
+  uv = turns == 1 ? vec2(shown.y, 1.0 - shown.x)
+     : turns == 2 ? 1.0 - shown
+     : turns == 3 ? vec2(1.0 - shown.y, shown.x)
+     : shown;
   gl_Position = vec4(corner, 0.0, 1.0);
 }`;
 
@@ -89,8 +96,11 @@ void main() {
 }`;
 
 export type Renderer = {
-  /** `look` is drawn when given; changing it only re-uploads when it is a different LUT. */
-  draw(image: ImageBitmap, zebraPercent: number | null, look: Cube | null, peaking: Peaking | null): void;
+  /**
+   * `look` is drawn when given; changing it only re-uploads when it is a different LUT.
+   * `turns`: quarter turns clockwise, so the picture is upright in portrait shooting.
+   */
+  draw(image: ImageBitmap, zebraPercent: number | null, look: Cube | null, peaking: Peaking | null, turns: number): void;
   /** Black, for when there is no live picture to show. */
   clear(): void;
 };
@@ -135,13 +145,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const lookSize = uniform("lookSize");
   const peakLevel = uniform("peakLevel");
   const texel = uniform("texel");
+  const turnsUniform = uniform("turns");
 
   return {
-    draw(image, zebraPercent, look, peaking) {
-      if (canvas.width !== image.width || canvas.height !== image.height) {
-        canvas.width = image.width;
-        canvas.height = image.height;
+    draw(image, zebraPercent, look, peaking, turns) {
+      const [width, height] = turns % 2 ? [image.height, image.width] : [image.width, image.height];
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
       }
+      gl.uniform1i(turnsUniform, turns % 4);
       gl.uniform2f(texel, 1 / image.width, 1 / image.height);
       if (look !== shownLook) {
         shownLook = look;

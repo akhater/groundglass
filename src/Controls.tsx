@@ -7,8 +7,8 @@ import { Icon, type IconName } from "./icons";
 type ToolProps = {
   icon: IconName;
   label: string;
-  /** What it is set to, shown under the icon: "98%", "Thirds", "×5", "Off". */
-  value: string;
+  /** What it is set to, shown under the icon: "98%", "Thirds", "×5", "Off". None: the icon says it. */
+  value?: string;
   on: boolean;
   /** Undefined for a plain toggle; true or false for a tool with choices, whether they are open. */
   open?: boolean;
@@ -20,14 +20,15 @@ export function Tool({ icon, label, value, on, open, disabled, onClick }: ToolPr
   return (
     <button
       className={`tool${open !== undefined ? " opens" : ""}`}
-      aria-label={`${label}: ${value}`}
+      aria-label={value === undefined ? label : `${label}: ${value}`}
       aria-pressed={on}
       aria-expanded={open}
       disabled={disabled}
       onClick={onClick}
     >
       <Icon name={icon} />
-      <span>{value}</span>
+      {/* Empty without a value, keeping the icon in line with the others. */}
+      <span aria-hidden={value === undefined}>{value ?? " "}</span>
     </button>
   );
 }
