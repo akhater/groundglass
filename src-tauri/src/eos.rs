@@ -3,6 +3,7 @@
 //! units as CCAPI. One transaction at a time: each call holds the session for
 //! one exchange, so a command waits one frame at most. No threads, no queues.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -77,13 +78,17 @@ impl Camera {
     }
 
     fn try_frame(&self) -> Result<Option<Vec<u8>>> {
+        let started = Instant::now();
         let data = self.exchange(|link| {
             if events_due(link.events_at, Instant::now()) {
+                let reading = Instant::now();
                 link.session.events()?;
+                log_slow("reports", reading);
                 link.events_at = Instant::now();
             }
             link.session.viewfinder_data()
         })?;
+        log_frame(data.is_some(), started);
         let Some(data) = data else { return Ok(None) };
         lock(&self.latest).take_in(&data);
         Ok(ptpip::viewfinder_jpeg(&data).map(<[u8]>::to_vec))
@@ -123,6 +128,9 @@ impl Camera {
     fn exchange<T>(&self, run: impl FnOnce(&mut Link) -> std::result::Result<T, ptpip::Error>) -> Result<T> {
         let mut link = lock(&self.link);
         let result = run(link.as_mut().ok_or_else(|| CameraError::Unreachable("Not connected".into()))?);
+        if let Err(error) = &result {
+            eprintln!("[eos] {error:?}");
+        }
         if let Err(ptpip::Error::Connection(_) | ptpip::Error::Protocol(_)) = result {
             *link = None;
         }
@@ -160,6 +168,29 @@ fn camera_error(error: ptpip::Error) -> CameraError {
 /// The R6 Mark III gives its firmware 1.1.0 as "1-1.1.0" over PTP, "1.1.0" over CCAPI.
 fn firmware(version: &str) -> &str {
     version.split_once('-').map_or(version, |(_, firmware)| firmware)
+}
+
+/// Frames counted on stderr, as ccapi.rs does, with how often the camera had none ready.
+fn log_frame(ready: bool, started: Instant) {
+    static FRAMES: AtomicU64 = AtomicU64::new(0);
+    static NOT_READY: AtomicU64 = AtomicU64::new(0);
+    if !ready {
+        NOT_READY.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    let frames = FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
+    if frames.is_multiple_of(100) {
+        let not_ready = NOT_READY.load(Ordering::Relaxed);
+        let ms = started.elapsed().as_millis();
+        eprintln!("[eos] {frames} frames so far, {not_ready} not ready (last took {ms} ms)");
+    }
+}
+
+fn log_slow(what: &str, started: Instant) {
+    let ms = started.elapsed().as_millis();
+    if ms >= 100 {
+        eprintln!("[eos] {what} took {ms} ms");
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
