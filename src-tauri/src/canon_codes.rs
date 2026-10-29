@@ -1,10 +1,11 @@
 //! Canon EOS exposure codes (PTP properties 0xD103 ISO, 0xD101 aperture,
 //! 0xD102 shutter speed) written as CCAPI writes them, so both Wi-Fi functions
-//! show the same: "6400", "f9.0", "f11", "1/125", "0\"8", "auto", "bulb".
+//! show the same: "6400", "f9.0", "f11", "1/125", "0\"8", "auto", "bulb";
+//! and Picture Styles (0xD110).
 //! Codes from libgphoto2's camlibs/ptp2/config.c (canon_isospeed, canon_aperture,
-//! canon_shutterspeed; LGPL-2.1+, Marcus Meissner and contributors), with long
-//! shutter speeds written the way Canon writes them. Codes count eighths of a
-//! stop: +3 and +5 are thirds, +4 a half.
+//! canon_shutterspeed, canon_eos_picturestyle; LGPL-2.1+, Marcus Meissner and
+//! contributors), with long shutter speeds written the way Canon writes them.
+//! Exposure codes count eighths of a stop: +3 and +5 are thirds, +4 a half.
 
 /// The ISO speed, or the code in hex if it isn't one we know.
 pub fn iso(code: u32) -> String {
@@ -19,6 +20,15 @@ pub fn aperture(code: u32) -> String {
 /// The shutter speed, or the code in hex if it isn't one we know.
 pub fn shutter_speed(code: u32) -> String {
     label(SHUTTER_SPEED, code)
+}
+
+/// Picture Style Neutral (property 0xD110): live view runs in it, since the
+/// conversion to LUT input is measured on it.
+pub const PICTURE_STYLE_NEUTRAL: u32 = 0x84;
+
+/// The Picture Style as the camera's menu names it, or the code in hex if it isn't one we know.
+pub fn picture_style(code: u32) -> String {
+    label(PICTURE_STYLE, code)
 }
 
 fn label(table: &[(u32, &str)], code: u32) -> String {
@@ -217,6 +227,21 @@ const SHUTTER_SPEED: &[(u32, &str)] = &[
     (0xa8, "1/16000"),
 ];
 
+/// libgphoto2's canon_eos_picturestyle, named as the R6 Mark III's menu names them.
+const PICTURE_STYLE: &[(u32, &str)] = &[
+    (0x81, "Standard"),
+    (0x82, "Portrait"),
+    (0x83, "Landscape"),
+    (PICTURE_STYLE_NEUTRAL, "Neutral"),
+    (0x85, "Faithful"),
+    (0x86, "Monochrome"),
+    (0x87, "Auto"),
+    (0x88, "Fine Detail"),
+    (0x21, "User Def. 1"),
+    (0x22, "User Def. 2"),
+    (0x23, "User Def. 3"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +281,14 @@ mod tests {
         assert_eq!(shutter_speed(0x04), "bulb");
         assert_eq!(shutter_speed(0x00), "auto");
         assert_eq!(shutter_speed(0x01), "0x01");
+    }
+
+    #[test]
+    fn picture_style_codes_read_as_the_camera_menu_shows_them() {
+        assert_eq!(picture_style(0x81), "Standard");
+        assert_eq!(picture_style(PICTURE_STYLE_NEUTRAL), "Neutral");
+        assert_eq!(picture_style(0x87), "Auto");
+        assert_eq!(picture_style(0x21), "User Def. 1");
+        assert_eq!(picture_style(0x99), "0x99");
     }
 }
