@@ -7,12 +7,12 @@ import * as camera from "./camera";
 const FIRST_MS = 2_000;
 const EVERY_MS = 30_000;
 
-/** Percent, or null while not live, before the first answer or when the camera doesn't say. */
+/** The charge, or null while not live, before the first answer or when the camera doesn't say. */
 export function useBattery(live: boolean) {
-  const [percent, setPercent] = useState<number | null>(null);
+  const [battery, setBattery] = useState<camera.Battery | null>(null);
 
   useEffect(() => {
-    setPercent(null);
+    setBattery(null);
     if (!live) return;
     let running = true;
     let timer = 0;
@@ -29,7 +29,7 @@ export function useBattery(live: boolean) {
         if (!running) break;
         wait = EVERY_MS;
         const next = await camera.battery().catch(() => undefined);
-        if (running && next !== undefined) setPercent(next);
+        if (running && next !== undefined) setBattery(next);
       }
     })();
     return () => {
@@ -39,5 +39,5 @@ export function useBattery(live: boolean) {
     };
   }, [live]);
 
-  return percent;
+  return battery;
 }

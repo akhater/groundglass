@@ -2,6 +2,7 @@
 // the picture; while live it opens from the status badge at the top.
 import { useState } from "react";
 import type { Status } from "./liveView";
+import type { Battery } from "./camera";
 
 type Props = {
   running: boolean;
@@ -97,7 +98,7 @@ export function Connection(props: Props) {
   );
 }
 
-type BadgeProps = { status: Status | null; battery: number | null; open: boolean; onToggle: () => void };
+type BadgeProps = { status: Status | null; battery: Battery | null; open: boolean; onToggle: () => void };
 
 /** Under this, the battery shows red, as the camera's does. */
 const BATTERY_LOW = 20;
@@ -108,11 +109,14 @@ export function StatusBadge({ status, battery, open, onToggle }: BadgeProps) {
     <button className={`status ${status?.state ?? "connecting"}`} aria-expanded={open} onClick={onToggle}>
       {status?.state === "live" ? `${status.fps} fps` : status?.state === "lost" ? "Retrying…" : "Connecting…"}
       {battery !== null && (
-        <span className={`battery ${battery <= BATTERY_LOW ? "low" : ""}`} aria-label={`Battery ${battery}%`}>
+        <span
+          className={`battery ${battery.percent <= BATTERY_LOW ? "low" : ""}`}
+          aria-label={`Battery ${battery.exact ? "" : "about "}${battery.percent}%`}
+        >
           <i>
-            <b style={{ width: `${battery}%` }} />
+            <b style={{ width: `${battery.percent}%` }} />
           </i>
-          {battery}%
+          {battery.exact && `${battery.percent}%`}
         </span>
       )}
     </button>

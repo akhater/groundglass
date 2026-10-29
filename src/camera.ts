@@ -78,8 +78,10 @@ export type LiveDetails = { turns: number; level: Level | null; afFrames: AfFram
 /** The level, AF frames and histogram, while live. `turns`: what the screen shows now, kept while `locked`. */
 export const liveDetails = (turns: number, locked: boolean) => invoke<LiveDetails>("live_details", { turns, locked });
 
-/** The battery's charge in percent, null when the camera doesn't say. */
-export const battery = () => invoke<number | null>("battery");
+/** Mirrors `camera::Battery`: not `exact` when the camera gives only a step (full, 75, 50, 25, low). */
+export type Battery = { percent: number; exact: boolean };
+/** The battery's charge, null when the camera doesn't say. */
+export const battery = () => invoke<Battery | null>("battery");
 
 /** Looks: .cube files kept in the app's data folder. */
 export const listLuts = () => invoke<string[]>("list_luts");

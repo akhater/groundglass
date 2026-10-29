@@ -11,7 +11,7 @@ pub mod ptpip;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use camera::{Camera, CameraError, CameraInfo, SettingState};
+use camera::{Battery, Camera, CameraError, CameraInfo, SettingState};
 use ccapi::ExposureSetting;
 use ettr_run::Outcome;
 use orientation::Upright;
@@ -117,9 +117,9 @@ fn depth_of_field_preview(on: bool, connection: State<Connection>) -> Result<(),
     connection.camera()?.depth_of_field_preview(on)
 }
 
-/// The battery's charge in percent, or null when the camera doesn't say.
+/// The battery's charge, or null when the camera doesn't say.
 #[tauri::command(async)]
-fn battery(connection: State<Connection>) -> Result<Option<u8>, CameraError> {
+fn battery(connection: State<Connection>) -> Result<Option<Battery>, CameraError> {
     connection.camera()?.battery()
 }
 
