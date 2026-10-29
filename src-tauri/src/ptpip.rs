@@ -278,11 +278,15 @@ impl Session {
         &self.properties
     }
 
-    /// Sets a camera property (SetDevicePropValueEx, 32-bit value).
+    /// Sets a camera property (SetDevicePropValueEx, 32-bit value). Once the
+    /// camera takes it, `properties` has it at once, before the camera's next report.
     pub fn set_property(&mut self, property: u32, value: u32) -> Result<(), Error> {
         let (response, _) = self.transact(SET_DEVICE_PROP_VALUE_EX, &[], Some(&property_value(property, value)))?;
         match response {
-            RESPONSE_OK => Ok(()),
+            RESPONSE_OK => {
+                self.properties.values.insert(property, value);
+                Ok(())
+            }
             other => Err(response_error(SET_DEVICE_PROP_VALUE_EX, other)),
         }
     }
@@ -525,6 +529,32 @@ pub fn viewfinder_level(data: &[u8]) -> Option<Level> {
     Some(Level { roll: degrees(word(8)?), pitch: degrees(word(12)?) })
 }
 
+/// The sensor's size in pixels: block 0x0e, width and height (6960 x 4640 on
+/// the R6 Mark III). Live view's picture covers all of it at x1.
+pub fn viewfinder_sensor(data: &[u8]) -> Option<[u32; 2]> {
+    viewfinder_words(data, 0x0e)
+}
+
+/// The top-left corner of the magnify area around the AF point, in sensor
+/// pixels: block 0x5 (found 2026-10-29: a tap on the centre, 3480 x 2320, put
+/// it near 2784 x 1856, half a 1392 x 928 area up and left).
+pub fn viewfinder_af_corner(data: &[u8]) -> Option<[u32; 2]> {
+    viewfinder_words(data, 0x05)
+}
+
+/// The magnify area, in sensor pixels: block 0xd, x, y, width, height (a
+/// fifth of the sensor each way). It follows the AF point, and x5 shows it.
+pub fn viewfinder_zoom_area(data: &[u8]) -> Option<[u32; 4]> {
+    viewfinder_words(data, 0x0d)
+}
+
+/// The first `N` words (u32) of a block.
+fn viewfinder_words<const N: usize>(data: &[u8], kind: u32) -> Option<[u32; N]> {
+    let body = viewfinder_block(data, kind)?;
+    let words = body.get(..4 * N)?.as_chunks::<4>().0;
+    Some(std::array::from_fn(|i| u32::from_le_bytes(words[i])))
+}
+
 /// How many of live view's samples fall on each of 256 levels, per channel.
 #[derive(Debug, PartialEq)]
 pub struct Histogram {
@@ -723,6 +753,27 @@ mod tests {
         }
         assert_eq!(viewfinder_level(&data), Some(Level { roll: 28.0, pitch: -1.0 }));
         assert_eq!(viewfinder_level(&data[..16]), None);
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_sensor_and_the_af_area() {
+        // Blocks as the R6 Mark III sent them, AF point in the centre (2026-10-29).
+        let block = |kind: u32, words: &[u32]| {
+            let mut out = ((8 + 4 * words.len()) as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(&kind.to_le_bytes());
+            for word in words {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out
+        };
+        let mut data = block(0x0e, &[6960, 4640]);
+        data.extend(block(0x05, &[2784, 1856]));
+        data.extend(block(0x0d, &[2784, 1856, 1392, 928]));
+        assert_eq!(viewfinder_sensor(&data), Some([6960, 4640]));
+        assert_eq!(viewfinder_af_corner(&data), Some([2784, 1856]));
+        assert_eq!(viewfinder_zoom_area(&data), Some([2784, 1856, 1392, 928]));
+        assert_eq!(viewfinder_zoom_area(&block(0x0d, &[2784, 1856])), None); // too short
+        assert_eq!(viewfinder_sensor(&block(0x05, &[1, 2])), None);
     }
 
     #[test]

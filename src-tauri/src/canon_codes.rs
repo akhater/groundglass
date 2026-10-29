@@ -1,5 +1,6 @@
 //! Canon EOS exposure codes (PTP properties 0xD103 ISO, 0xD101 aperture,
-//! 0xD102 shutter speed) as the camera shows them: "6400", "f/9", "1/125", "0\"8".
+//! 0xD102 shutter speed) written as CCAPI writes them, so both Wi-Fi functions
+//! show the same: "6400", "f9.0", "f11", "1/125", "0\"8", "auto", "bulb".
 //! Codes from libgphoto2's camlibs/ptp2/config.c (canon_isospeed, canon_aperture,
 //! canon_shutterspeed; LGPL-2.1+, Marcus Meissner and contributors), with long
 //! shutter speeds written the way Canon writes them. Codes count eighths of a
@@ -28,8 +29,8 @@ fn label(table: &[(u32, &str)], code: u32) -> String {
 }
 
 const ISO: &[(u32, &str)] = &[
-    (0x00, "Auto"),
-    (0x01, "Auto"),
+    (0x00, "auto"),
+    (0x01, "auto"),
     (0x28, "6"),
     (0x30, "12"),
     (0x38, "25"),
@@ -73,71 +74,71 @@ const ISO: &[(u32, &str)] = &[
 ];
 
 const APERTURE: &[(u32, &str)] = &[
-    (0x00, "Auto"),
-    (0xb0, "Auto"),
-    (0xffff, "Auto"),
-    (0x08, "f/1"),
-    (0x0b, "f/1.1"),
-    (0x0c, "f/1.2"),
-    (0x0d, "f/1.2"),
-    (0x10, "f/1.4"),
-    (0x13, "f/1.6"),
-    (0x14, "f/1.8"),
-    (0x15, "f/1.8"),
-    (0x18, "f/2"),
-    (0x1b, "f/2.2"),
-    (0x1c, "f/2.5"),
-    (0x1d, "f/2.5"),
-    (0x20, "f/2.8"),
-    (0x23, "f/3.2"),
-    (0x24, "f/3.5"),
-    (0x25, "f/3.5"),
-    (0x28, "f/4"),
-    (0x2b, "f/4.5"),
-    (0x2c, "f/4.5"),
-    (0x2d, "f/5"),
-    (0x30, "f/5.6"),
-    (0x33, "f/6.3"),
-    (0x34, "f/6.7"),
-    (0x35, "f/7.1"),
-    (0x38, "f/8"),
-    (0x3b, "f/9"),
-    (0x3c, "f/9.5"),
-    (0x3d, "f/10"),
-    (0x40, "f/11"),
-    (0x43, "f/13"),
-    (0x44, "f/13"),
-    (0x45, "f/14"),
-    (0x48, "f/16"),
-    (0x4b, "f/18"),
-    (0x4c, "f/19"),
-    (0x4d, "f/20"),
-    (0x50, "f/22"),
-    (0x53, "f/25"),
-    (0x54, "f/27"),
-    (0x55, "f/29"),
-    (0x58, "f/32"),
-    (0x5b, "f/36"),
-    (0x5c, "f/38"),
-    (0x5d, "f/40"),
-    (0x60, "f/45"),
-    (0x63, "f/51"),
-    (0x64, "f/54"),
-    (0x65, "f/57"),
-    (0x68, "f/64"),
-    (0x6b, "f/72"),
-    (0x6c, "f/76"),
-    (0x6d, "f/81"),
-    (0x70, "f/91"),
+    (0x00, "auto"),
+    (0xb0, "auto"),
+    (0xffff, "auto"),
+    (0x08, "f1.0"),
+    (0x0b, "f1.1"),
+    (0x0c, "f1.2"),
+    (0x0d, "f1.2"),
+    (0x10, "f1.4"),
+    (0x13, "f1.6"),
+    (0x14, "f1.8"),
+    (0x15, "f1.8"),
+    (0x18, "f2.0"),
+    (0x1b, "f2.2"),
+    (0x1c, "f2.5"),
+    (0x1d, "f2.5"),
+    (0x20, "f2.8"),
+    (0x23, "f3.2"),
+    (0x24, "f3.5"),
+    (0x25, "f3.5"),
+    (0x28, "f4.0"),
+    (0x2b, "f4.5"),
+    (0x2c, "f4.5"),
+    (0x2d, "f5.0"),
+    (0x30, "f5.6"),
+    (0x33, "f6.3"),
+    (0x34, "f6.7"),
+    (0x35, "f7.1"),
+    (0x38, "f8.0"),
+    (0x3b, "f9.0"),
+    (0x3c, "f9.5"),
+    (0x3d, "f10"),
+    (0x40, "f11"),
+    (0x43, "f13"),
+    (0x44, "f13"),
+    (0x45, "f14"),
+    (0x48, "f16"),
+    (0x4b, "f18"),
+    (0x4c, "f19"),
+    (0x4d, "f20"),
+    (0x50, "f22"),
+    (0x53, "f25"),
+    (0x54, "f27"),
+    (0x55, "f29"),
+    (0x58, "f32"),
+    (0x5b, "f36"),
+    (0x5c, "f38"),
+    (0x5d, "f40"),
+    (0x60, "f45"),
+    (0x63, "f51"),
+    (0x64, "f54"),
+    (0x65, "f57"),
+    (0x68, "f64"),
+    (0x6b, "f72"),
+    (0x6c, "f76"),
+    (0x6d, "f81"),
+    (0x70, "f91"),
 ];
 
 // libgphoto2 has 0x14 "20.3", 0x1d "10.3" and 0x23 "6.3": half and third
 // stops that Canon shows as 20", 10" and 6". 1/10000 and 1/12800 (0xa3, 0xa5)
 // aren't in its table; they follow the same eighths.
 const SHUTTER_SPEED: &[(u32, &str)] = &[
-    (0x00, "Auto"),
-    (0x04, "Bulb"),
-    (0x0c, "Bulb"),
+    (0x00, "auto"),
+    (0x04, "bulb"),
+    (0x0c, "bulb"),
     (0x10, "30\""),
     (0x13, "25\""),
     (0x14, "20\""),
@@ -227,17 +228,20 @@ mod tests {
         assert_eq!(iso(0x78), "6400");
         assert_eq!(iso(0x7b), "8000");
         assert_eq!(iso(0x98), "102400");
-        assert_eq!(iso(0x00), "Auto");
+        assert_eq!(iso(0x00), "auto");
         assert_eq!(iso(0x1234), "0x1234");
     }
 
     #[test]
-    fn aperture_codes_read_as_f_numbers() {
-        assert_eq!(aperture(0x20), "f/2.8");
-        assert_eq!(aperture(0x28), "f/4");
-        assert_eq!(aperture(0x3b), "f/9");
-        assert_eq!(aperture(0x50), "f/22");
-        assert_eq!(aperture(0xffff), "Auto");
+    fn aperture_codes_read_as_ccapi_writes_them() {
+        assert_eq!(aperture(0x20), "f2.8");
+        assert_eq!(aperture(0x28), "f4.0");
+        assert_eq!(aperture(0x08), "f1.0");
+        assert_eq!(aperture(0x3b), "f9.0");
+        assert_eq!(aperture(0x3c), "f9.5");
+        assert_eq!(aperture(0x3d), "f10");
+        assert_eq!(aperture(0x50), "f22");
+        assert_eq!(aperture(0xffff), "auto");
         assert_eq!(aperture(0x01), "0x01");
     }
 
@@ -249,8 +253,8 @@ mod tests {
         assert_eq!(shutter_speed(0x70), "1/125");
         assert_eq!(shutter_speed(0xa0), "1/8000");
         assert_eq!(shutter_speed(0xa8), "1/16000");
-        assert_eq!(shutter_speed(0x04), "Bulb");
-        assert_eq!(shutter_speed(0x00), "Auto");
+        assert_eq!(shutter_speed(0x04), "bulb");
+        assert_eq!(shutter_speed(0x00), "auto");
         assert_eq!(shutter_speed(0x01), "0x01");
     }
 }
