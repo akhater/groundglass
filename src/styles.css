@@ -1235,6 +1235,8 @@ button:disabled {
   position: absolute;
   border-radius: 3px;
   background: var(--scrim);
+  /* A light edge, so the dark track still shows on a dark picture. */
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.45);
 }
 
 /* The middle mark: level. */
