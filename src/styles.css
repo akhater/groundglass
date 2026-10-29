@@ -306,6 +306,46 @@ button:disabled {
   background: var(--bad);
 }
 
+/* The camera's battery, a small gauge and its percent, as on the camera's screen. */
+.battery {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+}
+
+.battery i {
+  position: relative;
+  box-sizing: content-box;
+  width: 18px;
+  height: 8px;
+  padding: 1px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.battery b {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.battery i::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: -4px;
+  width: 2px;
+  height: 6px;
+  border-radius: 0 1px 1px 0;
+  background: currentColor;
+}
+
+.battery.low {
+  color: var(--bad);
+}
+
 .errors {
   position: absolute;
   top: calc(56px + env(safe-area-inset-top));
@@ -648,19 +688,25 @@ button:disabled {
   transform: translateY(-50%);
 }
 
-/* The histogram, bottom left of the picture, clear of the level's roll scale. */
+/* The histogram, inside the picture's bottom left corner, clear of the level's
+   roll scale; lifted above a strip of choices when one covers that corner. */
 .histogram {
+  --clear: 10px;
   position: absolute;
-  left: max(10px, env(safe-area-inset-left));
-  bottom: 10px;
-  width: min(26%, 180px);
-  height: 64px;
+  left: max(calc(var(--picture-left, 0px) + 8px), max(10px, env(safe-area-inset-left)));
+  bottom: max(calc(100% - var(--picture-bottom, 100%) + 8px), var(--clear));
+  width: clamp(110px, 22%, 200px);
+  height: 60px;
   padding: 4px 6px;
   border-radius: 8px;
   background: var(--scrim);
   color: var(--muted);
   font-size: 0.8rem;
   pointer-events: none;
+}
+
+.stage:has(.strip) .histogram {
+  --clear: calc(75px + env(safe-area-inset-bottom));
 }
 
 .histogram svg {
@@ -673,14 +719,14 @@ button:disabled {
   fill: rgb(255 255 255 / 0.75);
 }
 
-/* Crop, Grid, Level, Histogram, x5, x10 and DOF (dimmed outside EOS Utility
-   mode), over the top right of the picture; on a narrow screen they wrap clear
-   of the status badge. */
+/* Crop, Grid, Level, Histogram, the magnifier (x1, x5, x10) and DOF (the last
+   two dimmed outside EOS Utility mode), over the top right of the picture; on a
+   narrow screen they wrap clear of the status badge with its battery. */
 .stage-tools {
   position: absolute;
   top: calc(10px + env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
-  max-width: calc(100% - 110px);
+  max-width: calc(100% - 165px);
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -694,6 +740,24 @@ button:disabled {
   border-radius: 18px;
   background: var(--scrim);
   font-size: 0.85rem;
+}
+
+.stage-tools .loupe {
+  display: flex;
+  align-items: center;
+  /* As wide at x10 as at x1, so pressing it never moves the others. */
+  min-width: 70px;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.loupe svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
 .stage-tools button:disabled {

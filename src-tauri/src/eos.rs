@@ -26,6 +26,8 @@ const NOT_READY_TRIES: u32 = 5;
 const AF_FRAME_PART: f64 = 0.1;
 /// Canon's Picture Style property.
 const PICTURE_STYLE: u32 = 0xd110;
+/// Canon's battery level property.
+const BATTERY: u32 = 0xd111;
 
 pub struct Camera {
     /// None once closed: a closed session never reopens, `connect` makes a new camera.
@@ -200,6 +202,14 @@ impl Camera {
             link.depth_of_field_preview = on;
             Ok(())
         })
+    }
+
+    /// The battery's charge in percent, from what the camera last reported:
+    /// no camera traffic of its own.
+    pub fn battery(&self) -> Result<Option<u8>> {
+        let link = lock(&self.link);
+        let properties = link.as_ref().ok_or_else(not_connected)?.session.properties();
+        Ok(properties.value(BATTERY).and_then(canon_codes::battery_percent))
     }
 
     pub fn is_open(&self) -> bool {

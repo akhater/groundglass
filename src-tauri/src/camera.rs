@@ -189,6 +189,14 @@ impl Camera {
         }
     }
 
+    /// The battery's charge in percent, None when the camera doesn't say.
+    pub fn battery(&self) -> Result<Option<u8>> {
+        match self {
+            Self::Ccapi(camera) => camera.battery(),
+            Self::Ptp(camera) => camera.battery(),
+        }
+    }
+
     /// Whether the camera needs a stop on exit. CCAPI: only while live, since
     /// after a long idle the camera may have closed the session and only
     /// `connect` may open one. PTP: while the session is open.

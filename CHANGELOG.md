@@ -4,6 +4,19 @@ Newest first.
 
 ## 26.44.4 - unreleased
 
+### Added
+
+- **Battery:** the camera's battery level next to the frame rate, red at 20%
+  and under, in both Wi-Fi modes. It is read every 30 seconds.
+
+### Changed
+
+- **Magnify:** one button steps through x1, x5 and x10 and back, as the
+  camera's magnify button does, and shows the current level (EOS Utility mode;
+  dimmed in CCAPI mode).
+- **Histogram:** sits in the picture's bottom left corner and moves above a
+  strip of choices when one is open, instead of hiding under it.
+
 ## 26.44.3 - 2026-10-29
 
 ### Added

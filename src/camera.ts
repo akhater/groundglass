@@ -64,6 +64,9 @@ export type LiveDetails = { level: Level | null; afFrames: AfFrame[]; histogram:
 /** The level, AF frames and histogram, while live. */
 export const liveDetails = () => invoke<LiveDetails>("live_details");
 
+/** The battery's charge in percent, null when the camera doesn't say. */
+export const battery = () => invoke<number | null>("battery");
+
 /** Looks: .cube files kept in the app's data folder. */
 export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });

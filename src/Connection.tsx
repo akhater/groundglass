@@ -97,11 +97,24 @@ export function Connection(props: Props) {
   );
 }
 
-/** The status on the picture, kept short; tapping it opens the connection panel. */
-export function StatusBadge({ status, open, onToggle }: { status: Status | null; open: boolean; onToggle: () => void }) {
+type BadgeProps = { status: Status | null; battery: number | null; open: boolean; onToggle: () => void };
+
+/** Under this, the battery shows red, as the camera's does. */
+const BATTERY_LOW = 20;
+
+/** The status on the picture, kept short, with the camera's battery; tapping it opens the connection panel. */
+export function StatusBadge({ status, battery, open, onToggle }: BadgeProps) {
   return (
     <button className={`status ${status?.state ?? "connecting"}`} aria-expanded={open} onClick={onToggle}>
       {status?.state === "live" ? `${status.fps} fps` : status?.state === "lost" ? "Retrying…" : "Connecting…"}
+      {battery !== null && (
+        <span className={`battery ${battery <= BATTERY_LOW ? "low" : ""}`} aria-label={`Battery ${battery}%`}>
+          <i>
+            <b style={{ width: `${battery}%` }} />
+          </i>
+          {battery}%
+        </span>
+      )}
     </button>
   );
 }

@@ -101,6 +101,12 @@ fn depth_of_field_preview(on: bool, connection: State<Connection>) -> Result<(),
     connection.camera()?.depth_of_field_preview(on)
 }
 
+/// The battery's charge in percent, or null when the camera doesn't say.
+#[tauri::command(async)]
+fn battery(connection: State<Connection>) -> Result<Option<u8>, CameraError> {
+    connection.camera()?.battery()
+}
+
 fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
     let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     luts::folder(&data).map_err(|e| e.to_string())
@@ -138,6 +144,7 @@ pub fn run() {
             set_focus_point,
             zoom,
             depth_of_field_preview,
+            battery,
             list_luts,
             save_lut,
             read_lut

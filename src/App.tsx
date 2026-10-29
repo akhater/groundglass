@@ -14,6 +14,7 @@ import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
 import type { Peaking } from "./render";
 import { Strip } from "./Strip";
+import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
 import { useTapFocus } from "./useTapFocus";
@@ -72,6 +73,7 @@ export default function App() {
   const [guideRotation, setGuideRotation] = useState(0);
   const [crop, setCrop] = useState<Ratio | "off">("off");
   const details = useLiveDetails(live);
+  const battery = useBattery(live);
   const tapFocus = useTapFocus(canvas);
 
   const closeAll = () => {
@@ -220,6 +222,7 @@ export default function App() {
         {running && (
           <StatusBadge
             status={status}
+            battery={battery}
             open={connectionOpen}
             onToggle={() => {
               setPicker(null);
@@ -234,7 +237,7 @@ export default function App() {
           <Composition guide={guide} rotation={guideRotation} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} />}
-        {live && histogramOn && <Histogram counts={details?.histogram ?? null} />}
+        {live && histogramOn && <Histogram counts={details?.histogram ?? null} box={picture} />}
         {live && (
           <div className="stage-tools">
             <button aria-pressed={crop !== "off"} aria-expanded={picker === "crop"} onClick={() => toggle("crop")}>
