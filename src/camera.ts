@@ -1,7 +1,8 @@
 // The Rust commands in src-tauri/src/lib.rs, typed.
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-export type CameraInfo = { model: string; firmware: string };
+/** Mirrors `camera::CameraInfo`: `zoom` and `depthOfFieldPreview` say what live view can do (EOS Utility mode only). */
+export type CameraInfo = { model: string; firmware: string; zoom: boolean; depthOfFieldPreview: boolean };
 
 /** Mirrors `camera::CameraError`. */
 export type CameraError =
@@ -44,6 +45,13 @@ export const setExposureSetting = (setting: ExposureSetting, value: string) =>
 
 /** Moves the AF point to (x, y), fractions across the picture. */
 export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
+
+/** Live view's magnification: the whole picture, x5 or x10. */
+export type Zoom = 1 | 5 | 10;
+/** Where `CameraInfo.zoom` says the camera can. At x10 frames still come at x5: liveView.ts shows their central half. */
+export const zoom = (level: Zoom) => invoke<void>("zoom", { level });
+/** Where `CameraInfo.depthOfFieldPreview` says the camera can: the lens stops down while on. */
+export const depthOfFieldPreview = (on: boolean) => invoke<void>("depth_of_field_preview", { on });
 
 /** Mirrors `camera::Level`: degrees from level. */
 export type Level = { roll: number; pitch: number };

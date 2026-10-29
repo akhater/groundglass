@@ -39,6 +39,8 @@ struct Link {
     events_at: Instant,
     /// The user's Picture Style while live view has it switched to Neutral.
     user_style: Option<u32>,
+    /// Depth of field preview is on: turned off on stop.
+    depth_of_field_preview: bool,
 }
 
 impl Camera {
@@ -47,8 +49,14 @@ impl Camera {
         let mut session = Session::open(host, PAIRING_WAIT).map_err(camera_error)?;
         session.set_timeout(ANSWER_WAIT).map_err(camera_error)?;
         let device = session.device_info().map_err(camera_error)?;
-        let info = CameraInfo { model: device.model, firmware: firmware(&device.version).to_string() };
-        let link = Link { session, events_at: Instant::now(), user_style: None };
+        // The R6 Mark III magnifies and previews depth of field over PTP.
+        let info = CameraInfo {
+            model: device.model,
+            firmware: firmware(&device.version).to_string(),
+            zoom: true,
+            depth_of_field_preview: true,
+        };
+        let link = Link { session, events_at: Instant::now(), user_style: None, depth_of_field_preview: false };
         Ok((Self { link: Mutex::new(Some(link)), latest: Mutex::default() }, info))
     }
 
@@ -57,6 +65,8 @@ impl Camera {
     pub fn start_live_view(&self, camera_display_on: bool) -> Result<()> {
         self.exchange(|link| {
             link.session.start_live_view()?; // its reports carry the Picture Style
+            // A restart after a hiccup keeps the session: start from x1 again, as the screen does.
+            self.reset_view(link)?;
             // Without Neutral, looks are off in colour but live view still works: carry on.
             if link.user_style.is_none()
                 && let Some(style) = style_to_restore(link.session.properties().value(PICTURE_STYLE))
@@ -73,15 +83,27 @@ impl Camera {
         })
     }
 
-    /// The user's Picture Style back, live view back to the camera's screen,
-    /// then the session ends, so stop, exit and hiding the app never leave a
-    /// session open.
+    /// Back to x1 with depth of field preview off, the user's Picture Style
+    /// back, live view back to the camera's screen, then the session ends, so
+    /// stop, exit and hiding the app never leave a session open.
     pub fn stop_live_view(&self) -> Result<()> {
         let Some(mut link) = lock(&self.link).take() else { return Ok(()) };
+        let view = self.reset_view(&mut link);
         let style = link.user_style.map_or(Ok(()), |style| link.session.set_property(PICTURE_STYLE, style));
         let output = link.session.stop_live_view();
         let closed = link.session.close();
-        style.and(output).and(closed).map_err(camera_error)
+        view.and(style).and(output).and(closed).map_err(camera_error)
+    }
+
+    /// Back to x1 with depth of field preview off, where they were changed.
+    fn reset_view(&self, link: &mut Link) -> std::result::Result<(), ptpip::Error> {
+        if std::mem::take(&mut lock(&self.latest).zoom) > 1 {
+            link.session.zoom(1)?;
+        }
+        if std::mem::take(&mut link.depth_of_field_preview) {
+            link.session.depth_of_field_preview(false)?;
+        }
+        Ok(())
     }
 
     /// The newest frame, as JPEG bytes. What comes with it is kept for
@@ -160,6 +182,26 @@ impl Camera {
         self.exchange(|link| link.session.touch_af(x, y))
     }
 
+    /// Live view magnified 1 (the whole picture), 5 or 10 times. At x10 the
+    /// camera still sends the x5 pixels: the screen shows their central half.
+    pub fn zoom(&self, level: u32) -> Result<()> {
+        if ![1, 5, 10].contains(&level) {
+            return Err(CameraError::Refused(format!("no x{level} magnification")));
+        }
+        self.exchange(|link| link.session.zoom(level))?;
+        lock(&self.latest).zoom = level;
+        Ok(())
+    }
+
+    /// The lens stops down to the set aperture while `on`.
+    pub fn depth_of_field_preview(&self, on: bool) -> Result<()> {
+        self.exchange(|link| {
+            link.session.depth_of_field_preview(on)?;
+            link.depth_of_field_preview = on;
+            Ok(())
+        })
+    }
+
     pub fn is_open(&self) -> bool {
         lock(&self.link).is_some()
     }
@@ -189,6 +231,8 @@ struct Latest {
     af_corner: Option<[u32; 2]>,
     /// The magnify area: x, y, width, height.
     zoom_area: Option<[u32; 4]>,
+    /// The magnification asked for: 5 or 10; 0 or 1 for the whole picture.
+    zoom: u32,
 }
 
 impl Latest {
@@ -200,10 +244,27 @@ impl Latest {
         self.zoom_area = ptpip::viewfinder_zoom_area(data).or(self.zoom_area);
     }
 
-    /// What live view's picture covers on the sensor: all of it.
+    /// What live view's picture covers on the sensor: all of it, the magnify
+    /// area at x5, that area's central half at x10.
     fn picture(&self) -> Option<Area> {
-        let [width, height] = self.sensor?;
-        Some(Area { x: 0.0, y: 0.0, width: width as f64, height: height as f64 })
+        let whole = |[x, y, width, height]: [u32; 4]| Area {
+            x: x as f64,
+            y: y as f64,
+            width: width as f64,
+            height: height as f64,
+        };
+        match self.zoom {
+            5 => Some(whole(self.zoom_area?)),
+            10 => {
+                let area = whole(self.zoom_area?);
+                let (width, height) = (area.width / 2.0, area.height / 2.0);
+                Some(Area { x: area.x + width / 2.0, y: area.y + height / 2.0, width, height })
+            }
+            _ => {
+                let [width, height] = self.sensor?;
+                Some(whole([0, 0, width, height]))
+            }
+        }
     }
 
     /// The AF point, in the middle of its magnify area, as a frame on the
@@ -374,6 +435,31 @@ mod tests {
         let mut latest = Latest::default();
         latest.take_in(&reply(&[(0x05, &[2784, 1856])]));
         assert_eq!(latest.af_frames(), vec![]);
+    }
+
+    #[test]
+    fn zoomed_the_picture_is_the_magnify_area() {
+        let mut latest = Latest::default();
+        latest.take_in(&reply(&[(0x0e, &[6960, 4640]), (0x05, &[2784, 1856]), (0x0d, &[2784, 1856, 1392, 928])]));
+        let area = |x, y, width, height| Some((x, y, width, height));
+        let seen = |latest: &Latest| latest.picture().map(|p| (p.x, p.y, p.width, p.height));
+        assert_eq!(seen(&latest), area(0.0, 0.0, 6960.0, 4640.0));
+        // x5: the camera sends the magnify area, 1:1 sensor pixels.
+        latest.zoom = 5;
+        assert_eq!(seen(&latest), area(2784.0, 1856.0, 1392.0, 928.0));
+        let frame = AfFrame { x: 0.25, y: 0.25, width: 0.5, height: 0.5, state: AfState::Waiting };
+        assert_eq!(latest.af_frames(), vec![frame]);
+        assert_eq!(sensor_point(latest.picture().unwrap(), 0.5, 0.5), (3480, 2320));
+        // x10: the same pixels, shown cropped to their central half.
+        latest.zoom = 10;
+        assert_eq!(seen(&latest), area(3132.0, 2088.0, 696.0, 464.0));
+        let frame = AfFrame { x: 0.0, y: 0.0, width: 1.0, height: 1.0, state: AfState::Waiting };
+        assert_eq!(latest.af_frames(), vec![frame]);
+        assert_eq!(sensor_point(latest.picture().unwrap(), 0.0, 0.0), (3132, 2088));
+        // Zoomed but no magnify area yet: no picture to map onto.
+        let mut latest = Latest { zoom: 5, ..Latest::default() };
+        latest.take_in(&reply(&[(0x0e, &[6960, 4640])]));
+        assert!(latest.picture().is_none());
     }
 
     #[test]

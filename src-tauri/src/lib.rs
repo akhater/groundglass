@@ -90,6 +90,17 @@ fn set_focus_point(x: f64, y: f64, connection: State<Connection>) -> Result<(), 
     connection.camera()?.set_focus_point(x, y)
 }
 
+/// Live view magnified 1, 5 or 10 times.
+#[tauri::command(async)]
+fn zoom(level: u32, connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.zoom(level)
+}
+
+#[tauri::command(async)]
+fn depth_of_field_preview(on: bool, connection: State<Connection>) -> Result<(), CameraError> {
+    connection.camera()?.depth_of_field_preview(on)
+}
+
 fn luts_folder(app: &AppHandle) -> Result<PathBuf, String> {
     let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     luts::folder(&data).map_err(|e| e.to_string())
@@ -125,6 +136,8 @@ pub fn run() {
             set_exposure_setting,
             live_details,
             set_focus_point,
+            zoom,
+            depth_of_field_preview,
             list_luts,
             save_lut,
             read_lut

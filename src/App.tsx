@@ -7,6 +7,7 @@ import { AfFrames } from "./AfFrames";
 import { Composition, GUIDES, TURNING, type Guide } from "./Composition";
 import { Crop, cropBox, RATIOS, type Ratio } from "./Crop";
 import { Level } from "./Level";
+import { MagnifyButtons, useMagnify } from "./Magnify";
 import { pictureBox } from "./picture";
 import { ShootButton, useShoot } from "./ShootButton";
 import { remembered, rememberedList, rememberFirst } from "./storage";
@@ -57,8 +58,10 @@ export default function App() {
   peaking.current = peakingChoice === "off" ? null : peakingChoice;
 
   const looks = useLooks();
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking });
+  const zoom = useRef<camera.Zoom>(1);
+  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking, zoom });
   const live = status?.state === "live";
+  const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
@@ -189,6 +192,7 @@ export default function App() {
     exposure.error,
     looks.error,
     tapFocus.error,
+    magnify.error,
   ]
     .filter(Boolean)
     .join("\n");
@@ -239,6 +243,7 @@ export default function App() {
             <button aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
               Level
             </button>
+            {status.state === "live" && <MagnifyButtons camera={status.camera} magnify={magnify} />}
           </div>
         )}
         {errors && errors !== dismissed && (

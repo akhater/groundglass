@@ -648,12 +648,16 @@ button:disabled {
   transform: translateY(-50%);
 }
 
-/* Grid and Level, over the top right of the picture. */
+/* Crop, Grid, Level (and x5, x10, DOF in EOS Utility mode), over the top
+   right of the picture; on a narrow screen they wrap clear of the status badge. */
 .stage-tools {
   position: absolute;
   top: calc(10px + env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
+  max-width: calc(100% - 110px);
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
