@@ -459,6 +459,7 @@ button:disabled {
 
 /* A camera setting: name small, value large. */
 .setting {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -502,13 +503,13 @@ button:disabled {
   color: var(--accent);
 }
 
-/* Pinned for ETTR: a lock by the name. */
+/* Pinned for ETTR: a lock in the corner, clear of the name in a narrow column. */
 .setting small .icon {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-left: 4px;
-  vertical-align: -1px;
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 11px;
+  height: 11px;
   color: var(--accent);
   stroke-width: 2.4;
 }
@@ -568,8 +569,8 @@ button:disabled {
 }
 
 /* After ETTR: a setting at the end of its range, or the button when live view didn't follow. */
-.setting.flash,
-.ettr.flash {
+.setting.limit,
+.ettr.limit {
   animation: limit 0.2s ease-in-out 8 alternate;
 }
 

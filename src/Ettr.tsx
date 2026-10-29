@@ -84,7 +84,7 @@ export function useEttr(live: boolean, states: States, refresh: () => Promise<vo
 }
 
 export function EttrButton({ ettr }: { ettr: ReturnType<typeof useEttr> }) {
-  const className = `ettr${ettr.running ? " running" : ""}${ettr.flash.includes("button") ? " flash" : ""}`;
+  const className = `ettr${ettr.running ? " running" : ""}${ettr.flash.includes("button") ? " limit" : ""}`;
   return (
     <button
       className={className}
@@ -93,7 +93,7 @@ export function EttrButton({ ettr }: { ettr: ReturnType<typeof useEttr> }) {
       aria-label={`Expose to the right, moving ${ettr.moves}`}
     >
       ETTR
-      <small>{ettr.moves}</small>
+      <small>sets {ettr.moves}</small>
     </button>
   );
 }
