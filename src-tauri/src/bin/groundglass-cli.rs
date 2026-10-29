@@ -18,6 +18,7 @@
 //!   groundglass-cli <host> ptp-tap   (moves the AF point top-left, bottom-right, centre; checks where it went)
 //!   groundglass-cli <host> ptp-shoot   (takes one photo during live view; prints the camera's reports after)
 //!   groundglass-cli <host> ptp-exposure   (reads ISO, aperture, shutter; steps ISO up one and back)
+//!   groundglass-cli <host> ptp-style   (reads the Picture Style, sets Neutral, reads it back, restores it)
 //!   groundglass-cli <host> ptp-watch [seconds]   (prints every change in live view's extra blocks and in the camera's reports)
 //!   groundglass-cli <host> ptp-screen <dir>   (live view to us only, then to the camera's screen too, then x10 from x1)
 //!
@@ -54,6 +55,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "ptp-tap" => return ptp_tap(address),
         "ptp-shoot" => return ptp_shoot(address),
         "ptp-exposure" => return ptp_exposure(address),
+        "ptp-style" => return ptp_style(address),
         "ptp-level" => {
             let seconds = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(15);
             return ptp_level(address, Duration::from_secs(seconds));
@@ -350,6 +352,43 @@ fn ptp_exposure(host: &str) -> Result<(), String> {
         }
         println!("camera reports ISO {:?}", session.properties().value(0xd103).map(|v| format!("{v:#x}")));
         Ok(())
+    })();
+    println!("live view back to the camera's screen: {:?}", session.stop_live_view());
+    let closed = session.close();
+    println!("session closed: {closed:?}");
+    result.and(closed.map_err(String::from))
+}
+
+/// Reads the Picture Style (0xD110) and the styles the camera allows, sets
+/// Neutral, checks the camera reports it, then puts the original back and
+/// checks that too. Always restores live view output and closes the session.
+fn ptp_style(host: &str) -> Result<(), String> {
+    use groundglass_lib::canon_codes::{PICTURE_STYLE_NEUTRAL, picture_style};
+    use groundglass_lib::ptpip::Session;
+    const STYLE: u32 = 0xd110;
+    let name = |code: Option<u32>| code.map_or("not reported".into(), |c| format!("{c:#x} {}", picture_style(c)));
+    // The camera reports a new value in a later report: read reports until it shows, 2 s at most.
+    let wait_for = |session: &mut Session, want: u32| -> Result<(), String> {
+        let waited = Instant::now();
+        while session.properties().value(STYLE) != Some(want) && waited.elapsed() < Duration::from_secs(2) {
+            session.events()?;
+        }
+        println!("camera reports {} after {} ms", name(session.properties().value(STYLE)), waited.elapsed().as_millis());
+        Ok(())
+    };
+    let mut session = Session::open(host, Duration::from_secs(90))?;
+    let result = (|| -> Result<(), String> {
+        session.start_live_view()?;
+        session.events()?;
+        let original = session.properties().value(STYLE);
+        println!("Picture Style: {}", name(original));
+        let allowed = session.properties().allowed(STYLE).iter().map(|&c| name(Some(c))).collect::<Vec<_>>();
+        println!("allowed: {}", allowed.join(", "));
+        let original = original.ok_or("the camera didn't report its Picture Style")?;
+        println!("setting Neutral ({PICTURE_STYLE_NEUTRAL:#x}): {:?}", session.set_property(STYLE, PICTURE_STYLE_NEUTRAL));
+        wait_for(&mut session, PICTURE_STYLE_NEUTRAL)?;
+        println!("putting back {}: {:?}", name(Some(original)), session.set_property(STYLE, original));
+        wait_for(&mut session, original)
     })();
     println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();

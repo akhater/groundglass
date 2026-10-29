@@ -8,6 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::camera::{CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
+use crate::canon_codes::{self, PICTURE_STYLE_NEUTRAL};
 use crate::ccapi::ExposureSetting;
 use crate::ptpip::{self, Session};
 
@@ -20,6 +21,8 @@ const EVENTS_EVERY: Duration = Duration::from_millis(250);
 /// While the camera has no new frame, ask again this often, this many times.
 const NOT_READY_WAIT: Duration = Duration::from_millis(20);
 const NOT_READY_TRIES: u32 = 5;
+/// Canon's Picture Style property.
+const PICTURE_STYLE: u32 = 0xd110;
 
 pub struct Camera {
     /// None once closed: a closed session never reopens, `connect` makes a new camera.
@@ -31,6 +34,8 @@ struct Link {
     session: Session,
     /// When the camera's reports were last read.
     events_at: Instant,
+    /// The user's Picture Style while live view has it switched to Neutral.
+    user_style: Option<u32>,
 }
 
 impl Camera {
@@ -40,14 +45,23 @@ impl Camera {
         session.set_timeout(ANSWER_WAIT).map_err(camera_error)?;
         let device = session.device_info().map_err(camera_error)?;
         let info = CameraInfo { model: device.model, firmware: firmware(&device.version).to_string() };
-        let link = Link { session, events_at: Instant::now() };
+        let link = Link { session, events_at: Instant::now(), user_style: None };
         Ok((Self { link: Mutex::new(Some(link)), latest: Mutex::default() }, info))
     }
 
-    /// Starts live view, to the camera's screen too when `camera_display_on`.
+    /// Starts live view in Picture Style Neutral, to the camera's screen too
+    /// when `camera_display_on`.
     pub fn start_live_view(&self, camera_display_on: bool) -> Result<()> {
         self.exchange(|link| {
-            link.session.start_live_view()?;
+            link.session.start_live_view()?; // its reports carry the Picture Style
+            // Without Neutral, looks are off in colour but live view still works: carry on.
+            if link.user_style.is_none()
+                && let Some(style) = style_to_restore(link.session.properties().value(PICTURE_STYLE))
+                && link.session.set_property(PICTURE_STYLE, PICTURE_STYLE_NEUTRAL).is_ok()
+            {
+                eprintln!("[eos] Picture Style {} -> Neutral", canon_codes::picture_style(style));
+                link.user_style = Some(style);
+            }
             if camera_display_on {
                 // Without it live view still works, the camera's screen off: carry on.
                 let _ = link.session.live_view_output(true);
@@ -56,13 +70,15 @@ impl Camera {
         })
     }
 
-    /// Live view back to the camera's screen, then the session ends, so stop,
-    /// exit and hiding the app never leave a session open.
+    /// The user's Picture Style back, live view back to the camera's screen,
+    /// then the session ends, so stop, exit and hiding the app never leave a
+    /// session open.
     pub fn stop_live_view(&self) -> Result<()> {
         let Some(mut link) = lock(&self.link).take() else { return Ok(()) };
+        let style = link.user_style.map_or(Ok(()), |style| link.session.set_property(PICTURE_STYLE, style));
         let output = link.session.stop_live_view();
         let closed = link.session.close();
-        output.and(closed).map_err(camera_error)
+        style.and(output).and(closed).map_err(camera_error)
     }
 
     /// The newest frame, as JPEG bytes. What comes with it is kept for
@@ -151,6 +167,12 @@ impl Latest {
     }
 }
 
+/// The user's Picture Style, to put back on stop, when live view switches it
+/// to Neutral. None when it is Neutral already or the camera didn't report it.
+fn style_to_restore(current: Option<u32>) -> Option<u32> {
+    current.filter(|&style| style != PICTURE_STYLE_NEUTRAL)
+}
+
 fn events_due(read_at: Instant, now: Instant) -> bool {
     now.duration_since(read_at) >= EVENTS_EVERY
 }
@@ -199,8 +221,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EVENTS_EVERY, Latest, camera_error, events_due, firmware};
+    use super::{EVENTS_EVERY, Latest, camera_error, events_due, firmware, style_to_restore};
     use crate::camera::{CameraError, Level};
+    use crate::canon_codes::PICTURE_STYLE_NEUTRAL;
     use crate::ptpip::Error;
     use std::time::Instant;
 
@@ -250,6 +273,15 @@ mod tests {
             camera_error(Error::Response { operation: 0x9128, response: 0x2002 }),
             CameraError::Refused(_)
         ));
+    }
+
+    #[test]
+    fn the_users_style_is_kept_unless_already_neutral() {
+        assert_eq!(style_to_restore(Some(0x81)), Some(0x81)); // Standard
+        assert_eq!(style_to_restore(Some(0x21)), Some(0x21)); // User Def. 1
+        assert_eq!(style_to_restore(Some(PICTURE_STYLE_NEUTRAL)), None);
+        // Not reported: nothing switched, nothing to put back.
+        assert_eq!(style_to_restore(None), None);
     }
 
     #[test]
