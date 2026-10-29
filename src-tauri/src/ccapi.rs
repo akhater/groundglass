@@ -31,7 +31,7 @@ const BUSY_RETRY_MS: [u64; 2] = [50, 100];
 
 /// The exposure settings the app shows. Paths as open-eos-control uses them
 /// (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
-#[derive(Clone, Copy, Debug, serde::Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExposureSetting {
     Iso,

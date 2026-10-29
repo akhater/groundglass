@@ -165,6 +165,15 @@ impl Camera {
         }
     }
 
+    /// The newest histogram for judging clipping: luminance over CCAPI, with R, G
+    /// and B too over PTP. Empty before the first.
+    pub fn histogram_channels(&self) -> Result<Vec<Vec<u32>>> {
+        match self {
+            Self::Ccapi(camera) => Ok(camera.live_details()?.histogram.into_iter().collect()),
+            Self::Ptp(camera) => Ok(camera.histogram_channels()),
+        }
+    }
+
     /// Moves the AF point to (`x`, `y`), fractions across live view's picture.
     pub fn set_focus_point(&self, x: f64, y: f64) -> Result<()> {
         match self {

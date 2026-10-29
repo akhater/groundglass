@@ -1,6 +1,8 @@
 pub mod camera;
 pub mod canon_codes;
 pub mod ccapi;
+mod ettr;
+mod ettr_run;
 mod eos;
 mod luts;
 pub mod ptpip;
@@ -10,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use camera::{Camera, CameraError, CameraInfo, LiveDetails, SettingState};
 use ccapi::ExposureSetting;
+use ettr_run::Outcome;
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -80,6 +83,13 @@ fn set_exposure_setting(
     connection.camera()?.set_exposure_setting(setting, &value)
 }
 
+/// Expose to the right: moves the settings not `pinned` to the brightest exposure
+/// that clips nothing, in a few rounds of set, wait, read (ettr_run.rs).
+#[tauri::command(async)]
+fn expose_to_the_right(pinned: Vec<ExposureSetting>, connection: State<Connection>) -> Result<Outcome, CameraError> {
+    ettr_run::run(connection.camera()?.as_ref(), &pinned)
+}
+
 #[tauri::command(async)]
 fn live_details(connection: State<Connection>) -> Result<LiveDetails, CameraError> {
     connection.camera()?.live_details()
@@ -140,6 +150,7 @@ pub fn run() {
             autofocus,
             exposure_setting,
             set_exposure_setting,
+            expose_to_the_right,
             live_details,
             set_focus_point,
             zoom,
