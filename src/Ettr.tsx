@@ -5,6 +5,7 @@
 // didn't follow (exposure simulation off).
 import { useState } from "react";
 import * as camera from "./camera";
+import { Icon } from "./icons";
 import { remember, remembered } from "./storage";
 
 const PINNED_KEY = "groundglass.ettrPinned";
@@ -89,6 +90,7 @@ export function EttrButton({ ettr }: { ettr: ReturnType<typeof useEttr> }) {
       onClick={() => void ettr.run()}
       aria-label="Expose to the right"
     >
+      <Icon name="ettr" />
       ETTR
     </button>
   );

@@ -557,6 +557,14 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ETTR's mark (a histogram against the clipping edge) over its name, set like the settings' names. */
+.ettr {
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-indent: 0.15em;
+}
+
 .af.held,
 .ettr.running {
   background: var(--accent);
