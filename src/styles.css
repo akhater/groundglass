@@ -1152,6 +1152,7 @@ button:disabled {
   position: absolute;
   border-radius: 50%;
   background: #fff;
+  box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.75);
   transition: left 0.2s, top 0.2s;
 }
 
@@ -1230,24 +1231,26 @@ button:disabled {
 
 .crop div {
   position: absolute;
-  outline: 1px solid rgb(255 255 255 / 0.6);
+  outline: 1px solid rgb(255 255 255 / 0.75);
+  border: 1px solid rgb(0 0 0 / 0.6);
   box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.65);
 }
 
-/* Composition guides: thin light lines that stay thin however they are scaled. */
+/* Composition guides: thin light lines that stay thin however they are scaled,
+   edged in black so they still show on a white sky. */
 .composition {
   position: absolute;
   overflow: hidden;
   pointer-events: none;
+  filter: drop-shadow(0 0 0.6px #000) drop-shadow(0 0 1px rgb(0 0 0 / 0.7));
 }
 
 .composition line,
 .composition path {
   fill: none;
-  stroke: rgb(255 255 255 / 0.7);
+  stroke: rgb(255 255 255 / 0.85);
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
 }
 
 .composition .dashed {
@@ -1260,7 +1263,7 @@ button:disabled {
   position: absolute;
   border: 2px solid #fff;
   border-radius: 3px;
-  box-shadow: 0 0 2px #000;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.6);
   pointer-events: none;
 }
 
