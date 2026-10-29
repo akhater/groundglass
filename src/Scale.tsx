@@ -10,7 +10,7 @@ type Props = {
   value: string;
   onPick: (value: string) => void;
   onClose: () => void;
-  /** Beside the title, e.g. Pin. */
+  /** Beside the title, e.g. the ETTR lock. */
   action?: ReactNode;
 };
 

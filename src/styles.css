@@ -557,6 +557,14 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ETTR's mark (a histogram against the clipping edge) over its name, set like the settings' names. */
+.ettr {
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-indent: 0.15em;
+}
+
 .af.held,
 .ettr.running {
   background: var(--accent);
@@ -814,7 +822,30 @@ button:disabled {
   height: 17px;
 }
 
+/* ETTR pin: the band's lock, open when free, closed and lit when pinned. */
+.picker .lock {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.picker .lock .icon {
+  margin: auto;
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.4;
+}
+
+.picker .lock[aria-pressed="true"] {
+  color: var(--accent);
+}
+
 .picker .action:disabled,
+.picker .lock:disabled,
 .picker .step:disabled {
   opacity: 0.3;
 }
