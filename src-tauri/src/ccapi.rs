@@ -97,7 +97,13 @@ impl Camera {
         let json: serde_json::Value =
             serde_json::from_slice(&body).map_err(|e| CameraError::Refused(e.to_string()))?;
         let text = |key: &str| json[key].as_str().unwrap_or("?").to_string();
-        let info = CameraInfo { model: text("productname"), firmware: text("firmwareversion") };
+        // The R6 Mark III's CCAPI has no path for either (see BACKLOG, "Live view zoom").
+        let info = CameraInfo {
+            model: text("productname"),
+            firmware: text("firmwareversion"),
+            zoom: false,
+            depth_of_field_preview: false,
+        };
         Ok((camera, info))
     }
 

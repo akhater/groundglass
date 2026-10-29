@@ -6,7 +6,7 @@ import { createRenderer, type Peaking } from "./render";
 
 export type Status =
   | { state: "connecting"; hint?: string }
-  | { state: "live"; fps: number }
+  | { state: "live"; fps: number; camera: camera.CameraInfo }
   | { state: "lost"; message: string };
 
 export type LiveViewOptions = {
@@ -19,6 +19,8 @@ export type LiveViewOptions = {
   look: () => Cube | null;
   /** Read on every frame too. Null = peaking off. */
   peaking: () => Peaking | null;
+  /** Read on every frame too: the magnification asked of the camera. */
+  zoom: () => camera.Zoom;
   onStatus: (status: Status) => void;
   signal: AbortSignal;
 };
@@ -39,25 +41,24 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
-  let connected = false;
+  let info: camera.CameraInfo | null = null;
   while (!signal.aborted) {
     try {
       onStatus({ state: "connecting" });
-      if (!connected) {
+      if (!info) {
         let hint = 0;
         let done = false;
         const showHint = () => onStatus({ state: "connecting", hint: "First time? Press OK on the camera to pair." });
         try {
-          await camera.connect(address, () => {
+          info = await camera.connect(address, () => {
             if (!done) hint = window.setTimeout(showHint, PAIRING_HINT_MS);
           });
         } finally {
           done = true;
           clearTimeout(hint);
         }
-        connected = true;
       }
       await camera.startLiveView(cameraDisplayOn);
       let frames = 0;
@@ -72,13 +73,14 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
           await sleep(BUSY_MS, signal);
           continue;
         }
-        const image = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
+        const decoded = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
+        const image = zoom() === 10 ? await centralHalf(decoded) : decoded;
         renderer.draw(image, zebraPercent(), look(), peaking());
         image.close();
         frames++;
         const now = performance.now();
         if (now - since >= 1000) {
-          onStatus({ state: "live", fps: Math.round((frames * 1000) / (now - since)) });
+          onStatus({ state: "live", fps: Math.round((frames * 1000) / (now - since)), camera: info });
           frames = 0;
           since = now;
         }
@@ -86,12 +88,20 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
     } catch (error) {
       if (signal.aborted) break;
       if (camera.isRestartable(error)) continue; // restart live view at once
-      connected = false;
+      info = null;
       onStatus({ state: "lost", message: camera.describe(error) });
       await sleep(RETRY_MS, signal);
     }
   }
   await camera.stopLiveView().catch(() => {});
+}
+
+/** x10: the camera sends the x5 pixels, so show their central half. */
+async function centralHalf(image: ImageBitmap): Promise<ImageBitmap> {
+  const { width, height } = image;
+  const half = await createImageBitmap(image, width / 4, height / 4, width / 2, height / 2);
+  image.close();
+  return half;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

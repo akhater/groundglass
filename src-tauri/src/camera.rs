@@ -28,9 +28,14 @@ pub enum CameraError {
 pub type Result<T> = std::result::Result<T, CameraError>;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CameraInfo {
     pub model: String,
     pub firmware: String,
+    /// Live view magnifies x5 and x10 (`Camera::zoom`).
+    pub zoom: bool,
+    /// The lens can stop down for a depth of field preview.
+    pub depth_of_field_preview: bool,
 }
 
 /// The camera's electronic level, in degrees from level (-180..180).
@@ -163,6 +168,22 @@ impl Camera {
         match self {
             Self::Ccapi(camera) => camera.set_focus_point(x, y),
             Self::Ptp(camera) => camera.set_focus_point(x, y),
+        }
+    }
+
+    /// Magnifies live view 1 (whole picture), 5 or 10 times, where `CameraInfo::zoom` says it can.
+    pub fn zoom(&self, level: u32) -> Result<()> {
+        match self {
+            Self::Ccapi(_) => Err(CameraError::Refused("live view can't magnify over CCAPI".into())),
+            Self::Ptp(camera) => camera.zoom(level),
+        }
+    }
+
+    /// Depth of field preview on or off, where `CameraInfo::depth_of_field_preview` says it can.
+    pub fn depth_of_field_preview(&self, on: bool) -> Result<()> {
+        match self {
+            Self::Ccapi(_) => Err(CameraError::Refused("no depth of field preview over CCAPI".into())),
+            Self::Ptp(camera) => camera.depth_of_field_preview(on),
         }
     }
 
