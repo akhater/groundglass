@@ -8,6 +8,7 @@ import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
 import { Composition, GuideArt, GUIDES, TURNING, type Guide } from "./Composition";
 import { Crop, CropArt, cropBox, RATIOS, type Ratio } from "./Crop";
+import { EttrButton, useEttr } from "./Ettr";
 import { Histogram } from "./Histogram";
 import { Icon } from "./icons";
 import { Level } from "./Level";
@@ -72,6 +73,7 @@ export default function App() {
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
+  const ettr = useEttr(live, exposure.states, exposure.refresh);
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
   const [histogramOn, setHistogramOn] = useState(false);
@@ -201,6 +203,7 @@ export default function App() {
     }
     const state = picker && exposure.states[picker];
     if (!picker || !state || state.choices.length === 0) return null;
+    const pinned = ettr.pinned.includes(picker);
     return (
       <Scale
         label={SETTINGS.find((s) => s.key === picker)!.label}
@@ -208,6 +211,13 @@ export default function App() {
         value={state.value}
         onPick={(value) => void exposure.change(picker, value)}
         onClose={close}
+        action={
+          // ETTR keeps a pinned setting as it is; two at most, so one is left to move.
+          <button className="action" aria-pressed={pinned} disabled={!ettr.canPin(picker)} onClick={() => ettr.pin(picker)}>
+            <Icon name="pin" />
+            {pinned ? "Pinned" : "Pin"}
+          </button>
+        }
       />
     );
   }
@@ -216,6 +226,7 @@ export default function App() {
     status?.state === "lost" ? status.message : status?.state === "connecting" ? (status.hint ?? "") : "",
     shot.error,
     exposure.error,
+    ettr.error,
     looks.error,
     tapFocus.error,
     magnify.error,
@@ -359,6 +370,8 @@ export default function App() {
                 value={state?.value ?? "–"}
                 open={picker === key}
                 disabled={!state || state.choices.length === 0}
+                pinned={ettr.pinned.includes(key)}
+                flash={ettr.flash.includes(key)}
                 onClick={() => toggle(key)}
               />
             );
@@ -371,6 +384,7 @@ export default function App() {
           />
         </div>
         <div className="actions">
+          <EttrButton ettr={ettr} />
           <FocusButton focus={exposure.focus} disabled={!live} />
           <ShootButton state={shot.state} disabled={!live} onShoot={() => void shot.shoot()} />
         </div>

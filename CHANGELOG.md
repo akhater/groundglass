@@ -6,6 +6,12 @@ Newest first.
 
 ### Added
 
+- **ETTR (expose to the right):** one tap beside AF-ON sets the brightest
+  exposure that clips nothing, from the camera's live histogram, in a second
+  or two. Pin up to two of shutter, aperture and ISO from their scale (a lock
+  shows by the name); ETTR moves the others, raising ISO last. A spot under
+  0.1% of the picture (a lamp, a glint) may clip. A setting at the end of its
+  range flashes; turning a dial stops it. Needs M with ISO not on auto.
 - **Battery:** the camera's battery level next to the frame rate, red at 20%
   and under, in both Wi-Fi modes. It is read every 30 seconds.
 

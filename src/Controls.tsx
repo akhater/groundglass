@@ -37,13 +37,26 @@ type SettingProps = {
   value: string;
   open: boolean;
   disabled?: boolean;
+  /** Kept as it is by ETTR: a lock in the corner. */
+  pinned?: boolean;
+  /** Flashes: ETTR found it at the end of its range. */
+  flash?: boolean;
   onClick: () => void;
 };
 
-export function Setting({ label, value, open, disabled, onClick }: SettingProps) {
+export function Setting({ label, value, open, disabled, pinned, flash, onClick }: SettingProps) {
   return (
-    <button className="setting" aria-label={`${label}: ${value}`} aria-expanded={open} disabled={disabled} onClick={onClick}>
-      <small>{label}</small>
+    <button
+      className={`setting${flash ? " limit" : ""}`}
+      aria-label={`${label}: ${value}${pinned ? ", pinned" : ""}`}
+      aria-expanded={open}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <small>
+        {label}
+        {pinned && <Icon name="pin" />}
+      </small>
       <strong>{value}</strong>
     </button>
   );

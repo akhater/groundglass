@@ -43,6 +43,16 @@ export const exposureSetting = (setting: ExposureSetting) =>
 export const setExposureSetting = (setting: ExposureSetting, value: string) =>
   invoke<void>("set_exposure_setting", { setting, value });
 
+/** Mirrors `ettr_run::Outcome`. Limited: the settings at the end of their range. */
+export type EttrOutcome =
+  | { kind: "Done" }
+  | { kind: "Limited"; detail: ExposureSetting[] }
+  | { kind: "Interrupted" }
+  | { kind: "NoResponse" }
+  | { kind: "Unavailable" };
+/** Expose to the right: the brightest exposure that clips nothing, moving only the settings not pinned. */
+export const exposeToTheRight = (pinned: ExposureSetting[]) => invoke<EttrOutcome>("expose_to_the_right", { pinned });
+
 /** Moves the AF point to (x, y), fractions across the picture. */
 export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
 
