@@ -14,6 +14,12 @@ Newest first.
   range flashes; turning a dial stops it. Needs M with ISO not on auto.
 - **Battery:** the camera's battery level next to the frame rate, red at 20%
   and under, in both Wi-Fi modes. It is read every 30 seconds.
+- **Portrait shooting:** with the camera held vertical (either way, or upside
+  down), live view turns upright, as on the camera's own screen. The AF
+  frames, tap to focus, guides, crop (portrait ratios) and level turn with it;
+  the level reads from vertical. On a phone held upright, the picture gets a
+  taller area. A rotation lock in the aids keeps the current turn whatever
+  the camera does.
 
 ### Changed
 

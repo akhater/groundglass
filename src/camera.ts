@@ -53,8 +53,8 @@ export type EttrOutcome =
 /** Expose to the right: the brightest exposure that clips nothing, moving only the settings not pinned. */
 export const exposeToTheRight = (pinned: ExposureSetting[]) => invoke<EttrOutcome>("expose_to_the_right", { pinned });
 
-/** Moves the AF point to (x, y), fractions across the picture. */
-export const setFocusPoint = (x: number, y: number) => invoke<void>("set_focus_point", { x, y });
+/** Moves the AF point to (x, y), fractions across the picture as shown, turned `turns` quarter turns clockwise. */
+export const setFocusPoint = (x: number, y: number, turns: number) => invoke<void>("set_focus_point", { x, y, turns });
 
 /** Live view's magnification: the whole picture, x5 or x10. */
 export type Zoom = 1 | 5 | 10;
@@ -69,10 +69,14 @@ export type Level = { roll: number; pitch: number };
 export type AfState = "waiting" | "focused" | "tracking" | "area";
 /** Mirrors `camera::AfFrame`: fractions of the picture. */
 export type AfFrame = { x: number; y: number; width: number; height: number; state: AfState };
-/** Mirrors `camera::LiveDetails`. `histogram`: luminance counts on 256 levels, dark to bright. */
-export type LiveDetails = { level: Level | null; afFrames: AfFrame[]; histogram: number[] | null };
-/** The level, AF frames and histogram, while live. */
-export const liveDetails = () => invoke<LiveDetails>("live_details");
+/**
+ * Mirrors `orientation::Upright`. `turns`: quarter turns clockwise that show the
+ * picture upright (portrait shooting), from the camera's roll; the level and AF
+ * frames come turned with it. `histogram`: luminance counts on 256 levels, dark to bright.
+ */
+export type LiveDetails = { turns: number; level: Level | null; afFrames: AfFrame[]; histogram: number[] | null };
+/** The level, AF frames and histogram, while live. `turns`: what the screen shows now, kept while `locked`. */
+export const liveDetails = (turns: number, locked: boolean) => invoke<LiveDetails>("live_details", { turns, locked });
 
 /** Mirrors `camera::Battery`: not `exact` when the camera gives only a step (full, 75, 50, 25, low). */
 export type Battery = { percent: number; exact: boolean };

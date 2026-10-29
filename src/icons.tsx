@@ -17,6 +17,10 @@ const PATHS = {
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
   rotate: "M20 11a8 8 0 1 0-2.3 5.7M20 4.5V11h-6.5",
+  // As on a phone: auto-rotate, a screen between two turning arrows; rotation lock, a padlock in a turning arrow.
+  autoRotate:
+    "M10 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM15.5 2.8A9.5 9.5 0 0 1 21 9.5M21 9.5l-2.7-.9M21 9.5l.5-2.8M8.5 21.2A9.5 9.5 0 0 1 3 14.5M3 14.5l2.7.9M3 14.5l-.5 2.8",
+  rotationLocked: "M20.5 12a8.5 8.5 0 1 1-2.5-6M20.5 3.5v4h-4M9.75 11.5V10a2.25 2.25 0 0 1 4.5 0v1.5M8.5 11.5h7v5h-7z",
   left: "M14.5 6 8.5 12l6 6",
   right: "M9.5 6l6 6-6 6",
 };
