@@ -3,6 +3,7 @@
 // stops or restarts, as the camera does.
 import { useEffect, useState, type RefObject } from "react";
 import * as camera from "./camera";
+import { Tool } from "./Controls";
 
 const NEXT: Record<camera.Zoom, camera.Zoom> = { 1: 5, 5: 10, 10: 1 };
 
@@ -45,32 +46,28 @@ export function useMagnify(live: boolean, zoom: RefObject<camera.Zoom>) {
   return { level, preview, error, magnify, togglePreview };
 }
 
-type Props = { camera: camera.CameraInfo; magnify: ReturnType<typeof useMagnify> };
+type Props = { camera: camera.CameraInfo | null; magnify: ReturnType<typeof useMagnify> };
 
-/** Dimmed where the camera can't (CCAPI mode), so they are there to find. */
-export function MagnifyButtons({ camera: info, magnify }: Props) {
+/** Dimmed where the camera can't (CCAPI mode, or not live), so they are there to find. */
+export function MagnifyTools({ camera: info, magnify }: Props) {
   return (
     <>
-      <button
-        className="loupe"
-        disabled={!info.zoom}
-        aria-label={`Magnify, now ×${magnify.level}`}
-        aria-pressed={magnify.level > 1}
+      <Tool
+        icon="magnify"
+        label="Magnify"
+        value={`×${magnify.level}`}
+        on={magnify.level > 1}
+        disabled={!info?.zoom}
         onClick={() => void magnify.magnify()}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="6.5" cy="6.5" r="4.5" />
-          <path d="M10 10l4.5 4.5" />
-        </svg>
-        ×{magnify.level}
-      </button>
-      <button
-        disabled={!info.depthOfFieldPreview}
-        aria-pressed={magnify.preview}
+      />
+      <Tool
+        icon="dof"
+        label="Depth of field preview"
+        value={magnify.preview ? "On" : "Off"}
+        on={magnify.preview}
+        disabled={!info?.depthOfFieldPreview}
         onClick={() => void magnify.togglePreview()}
-      >
-        DOF
-      </button>
+      />
     </>
   );
 }

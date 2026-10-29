@@ -38,6 +38,16 @@ export function Composition({ guide, rotation, box }: Props) {
   );
 }
 
+/** A small drawing of `guide` for its tile, from the same lines as the overlay. */
+export function GuideArt({ guide, rotation }: { guide: Guide; rotation: number }) {
+  return (
+    <svg className="art" viewBox="-1 -1 32 22" aria-hidden="true">
+      <rect width={30} height={20} rx={1.5} />
+      {lines(guide, 30, 20, rotation % 4)}
+    </svg>
+  );
+}
+
 function lines(guide: Guide, w: number, h: number, r: number) {
   switch (guide) {
     case "thirds":
