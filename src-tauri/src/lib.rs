@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use camera::{Camera, CameraError, CameraInfo, LiveDetails, SettingState};
 use ccapi::ExposureSetting;
-use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
+use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
 /// without holding the lock, so a slow frame never blocks a stop.
@@ -28,10 +28,13 @@ impl Connection {
 }
 
 #[tauri::command(async)]
-fn connect(address: String, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
+/// `pairing` hears once when the camera is in EOS Utility mode, so the screen can say to press OK.
+fn connect(address: String, pairing: Channel<bool>, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
     // Let go of the last camera first: over PTP the camera takes one session at a time.
     drop(connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
-    let (camera, info) = Camera::connect(&address)?;
+    let (camera, info) = Camera::connect(&address, || {
+        let _ = pairing.send(true);
+    })?;
     *connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(camera));
     Ok(info)
 }

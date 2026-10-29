@@ -1,5 +1,5 @@
 // The Rust commands in src-tauri/src/lib.rs, typed.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export type CameraInfo = { model: string; firmware: string };
 
@@ -11,7 +11,12 @@ export type CameraError =
   | { kind: "Refused"; detail: string }
   | { kind: "PairingRefused" };
 
-export const connect = (address: string) => invoke<CameraInfo>("connect", { address });
+/** `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera. */
+export function connect(address: string, onPairing: () => void) {
+  const pairing = new Channel<boolean>();
+  pairing.onmessage = onPairing;
+  return invoke<CameraInfo>("connect", { address, pairing });
+}
 
 export const startLiveView = (cameraDisplayOn: boolean) =>
   invoke<void>("start_live_view", { cameraDisplayOn });

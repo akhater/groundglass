@@ -83,10 +83,15 @@ impl Camera {
     /// Connects over the Wi-Fi function the camera runs. `address` is what the
     /// camera shows, e.g. `192.168.1.2:8080`. Its UPnP description (port 49152,
     /// not CCAPI's server) says which; without one, CCAPI as before.
-    pub fn connect(address: &str) -> Result<(Self, CameraInfo)> {
+    /// `on_pairing` runs once the camera turns out to be in EOS Utility mode,
+    /// where the first connect waits for OK on the camera.
+    pub fn connect(address: &str, on_pairing: impl FnOnce()) -> Result<(Self, CameraInfo)> {
         let host = host(address);
         match ptpip::device_description(host).map_or(Mode::Ccapi, |description| mode(&description)) {
-            Mode::Ptp => eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(camera), info)),
+            Mode::Ptp => {
+                on_pairing();
+                eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(camera), info))
+            }
             Mode::Ccapi => ccapi::Camera::connect(address).map(|(camera, info)| (Self::Ccapi(camera), info)),
         }
     }

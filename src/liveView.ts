@@ -24,7 +24,7 @@ export type LiveViewOptions = {
 };
 
 const RETRY_MS = 2000;
-/** A connect this slow is most likely the camera asking to pair (EOS Utility mode, the first time). */
+/** In EOS Utility mode, a connect this slow is the camera asking to pair (the first time). */
 const PAIRING_HINT_MS = 2000;
 /** While the camera takes a photo it sends no frames: ask again this often. */
 const BUSY_MS = 100;
@@ -46,13 +46,15 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
     try {
       onStatus({ state: "connecting" });
       if (!connected) {
-        const hint = setTimeout(
-          () => onStatus({ state: "connecting", hint: "First time? Press OK on the camera to pair." }),
-          PAIRING_HINT_MS,
-        );
+        let hint = 0;
+        let done = false;
+        const showHint = () => onStatus({ state: "connecting", hint: "First time? Press OK on the camera to pair." });
         try {
-          await camera.connect(address);
+          await camera.connect(address, () => {
+            if (!done) hint = window.setTimeout(showHint, PAIRING_HINT_MS);
+          });
         } finally {
+          done = true;
           clearTimeout(hint);
         }
         connected = true;
