@@ -29,6 +29,11 @@ Newest first.
 - **Overlays:** guides, crop frame, AF frames and the level's markers have a
   dark edge, so they show on a bright sky.
 
+### Fixed
+
+- **Picture after stopping:** the picture goes black when live view stops,
+  the app is hidden or the camera is lost, instead of keeping the last frame.
+
 ## 26.44.3 - 2026-10-29
 
 ### Added
