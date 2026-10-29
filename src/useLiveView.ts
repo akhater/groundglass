@@ -16,10 +16,11 @@ type Options = {
   look: RefObject<Cube | null>;
   peaking: RefObject<Peaking | null>;
   zoom: RefObject<camera.Zoom>;
+  turns: RefObject<number>;
 };
 
 /** The live view's status; null while stopped. */
-export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent, look, peaking, zoom }: Options) {
+export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns }: Options) {
   const [visible, setVisible] = useState(!document.hidden);
   const [status, setStatus] = useState<Status | null>(null);
 
@@ -41,11 +42,12 @@ export function useLiveView({ canvas, running, address, cameraDisplayOn, zebraPe
       look: () => look.current,
       peaking: () => peaking.current,
       zoom: () => zoom.current,
+      turns: () => turns.current,
       onStatus: setStatus,
       signal: abort.signal,
     });
     return () => abort.abort();
-  }, [canvas, running, visible, address, cameraDisplayOn, zebraPercent, look, peaking, zoom]);
+  }, [canvas, running, visible, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns]);
 
   return running ? status : null;
 }

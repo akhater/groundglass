@@ -6,9 +6,10 @@ export type Ratio = "1:1" | "5:4" | "4:3" | "16:9";
 
 export const RATIOS: Ratio[] = ["1:1", "5:4", "4:3", "16:9"];
 
-/** The largest box of `ratio` (width:height) centred in `box`. */
+/** The largest box of `ratio` centred in `box`, its long side along the box's: portrait on a tall picture. */
 export function cropBox(box: Box, ratio: Ratio): Box {
-  const [a, b] = ratio.split(":").map(Number);
+  const [long, short] = ratio.split(":").map(Number);
+  const [a, b] = box.height > box.width ? [short, long] : [long, short];
   const width = Math.min(box.width, (box.height * a) / b);
   const height = Math.min(box.height, (box.width * b) / a);
   return {

@@ -5,14 +5,16 @@ mod ettr;
 mod ettr_run;
 mod eos;
 mod luts;
+mod orientation;
 pub mod ptpip;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use camera::{Camera, CameraError, CameraInfo, LiveDetails, SettingState};
+use camera::{Camera, CameraError, CameraInfo, SettingState};
 use ccapi::ExposureSetting;
 use ettr_run::Outcome;
+use orientation::Upright;
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -90,13 +92,17 @@ fn expose_to_the_right(pinned: Vec<ExposureSetting>, connection: State<Connectio
     ettr_run::run(connection.camera()?.as_ref(), &pinned)
 }
 
+/// Turned upright from the camera's roll: `turns` is what the screen shows now,
+/// kept as it is while `locked` (rotation lock).
 #[tauri::command(async)]
-fn live_details(connection: State<Connection>) -> Result<LiveDetails, CameraError> {
-    connection.camera()?.live_details()
+fn live_details(turns: u8, locked: bool, connection: State<Connection>) -> Result<Upright, CameraError> {
+    Ok(orientation::upright(connection.camera()?.live_details()?, turns, locked))
 }
 
+/// (`x`, `y`) on the picture as shown, turned `turns` quarter turns clockwise.
 #[tauri::command(async)]
-fn set_focus_point(x: f64, y: f64, connection: State<Connection>) -> Result<(), CameraError> {
+fn set_focus_point(x: f64, y: f64, turns: u8, connection: State<Connection>) -> Result<(), CameraError> {
+    let (x, y) = orientation::sensor_point(x, y, turns);
     connection.camera()?.set_focus_point(x, y)
 }
 

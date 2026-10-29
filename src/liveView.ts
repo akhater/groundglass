@@ -21,6 +21,8 @@ export type LiveViewOptions = {
   peaking: () => Peaking | null;
   /** Read on every frame too: the magnification asked of the camera. */
   zoom: () => camera.Zoom;
+  /** Read on every frame too: quarter turns clockwise that show the picture upright. */
+  turns: () => number;
   onStatus: (status: Status) => void;
   signal: AbortSignal;
 };
@@ -41,7 +43,7 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let info: camera.CameraInfo | null = null;
   while (!signal.aborted) {
@@ -75,7 +77,7 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
         }
         const decoded = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
         const image = zoom() === 10 ? await centralHalf(decoded) : decoded;
-        renderer.draw(image, zebraPercent(), look(), peaking());
+        renderer.draw(image, zebraPercent(), look(), peaking(), turns());
         image.close();
         frames++;
         const now = performance.now();

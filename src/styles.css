@@ -93,6 +93,19 @@ button:disabled {
   max-height: 60vh;
 }
 
+/* Portrait shooting turns the picture tall: the stage takes the height the
+   choices don't need, and is never smaller than for a wide picture. */
+@media (orientation: portrait) {
+  .app.tall {
+    grid-template-rows: calc(48px + env(safe-area-inset-top)) minmax(min(100vw * 2 / 3, 60vh), 1fr) auto minmax(0, 240px) auto;
+  }
+
+  .app.tall .stage {
+    aspect-ratio: auto;
+    max-height: none;
+  }
+}
+
 .view {
   position: absolute;
   inset: 0;
@@ -115,7 +128,7 @@ button:disabled {
 .tools {
   grid-area: tools;
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   padding: 6px max(2px, env(safe-area-inset-left)) 4px;
 }
 
