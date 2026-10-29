@@ -200,7 +200,7 @@ impl Camera {
         self.request("GET", path, None)
     }
 
-    /// The level and AF frames while live view runs, from live view's details
+    /// The level, AF frames and histogram while live view runs, from live view's details
     /// (`flipdetail?kind=info`), which carry them on every request. (The event
     /// poll lists the level only when it changes, shared by every client.)
     pub fn live_details(&self) -> Result<LiveDetails> {
@@ -208,6 +208,7 @@ impl Camera {
         Ok(LiveDetails {
             level: level_from(&details),
             af_frames: af_frames_from(&details),
+            histogram: histogram_from(&details),
         })
     }
 
@@ -312,6 +313,13 @@ fn af_frames_from(details: &[u8]) -> Vec<AfFrame> {
         .collect()
 }
 
+/// The luminance histogram: the first of `liveviewdata.histogram`'s arrays.
+fn histogram_from(details: &[u8]) -> Option<Vec<u32>> {
+    let json = details_json(details)?;
+    let counts = json["liveviewdata"]["histogram"].get(0)?.as_array()?;
+    counts.iter().map(|count| count.as_u64().map(|count| count as u32)).collect()
+}
+
 fn level_from(details: &[u8]) -> Option<Level> {
     let json = details_json(details)?;
     let angle = &json["angleinformation"];
@@ -391,7 +399,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AfFrame, AfState, Level, af_frames_from, focus_point, level_from, root_url};
+    use super::{AfFrame, AfState, Level, af_frames_from, focus_point, histogram_from, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -440,6 +448,16 @@ mod tests {
             ]
         );
         assert_eq!(af_frames_from(br#"{"liveviewdata":{"afframe":[]}}"#), vec![]);
+    }
+
+    #[test]
+    fn the_histogram_is_the_first_of_its_arrays() {
+        // Shaped as the R6 Mark III sends it (2026-10-28), cut short.
+        let details = br#"{"liveviewdata":{"histogram":[[472481,67515,4,0],[1,2,3,4]]}}"#;
+        assert_eq!(histogram_from(details), Some(vec![472481, 67515, 4, 0]));
+        assert_eq!(histogram_from(br#"{"liveviewdata":{"histogram":[]}}"#), None);
+        assert_eq!(histogram_from(br#"{"liveviewdata":{"histogram":[["x"]]}}"#), None);
+        assert_eq!(histogram_from(br#"{"liveviewdata":{}}"#), None);
     }
 
     #[test]

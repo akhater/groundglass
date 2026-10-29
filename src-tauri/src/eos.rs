@@ -169,7 +169,7 @@ impl Camera {
     /// From what came with the newest frames: no camera traffic.
     pub fn live_details(&self) -> LiveDetails {
         let latest = lock(&self.latest);
-        LiveDetails { level: latest.level, af_frames: latest.af_frames() }
+        LiveDetails { level: latest.level, af_frames: latest.af_frames(), histogram: latest.histogram.clone() }
     }
 
     /// Moves the AF point to (`x`, `y`), fractions across live view's picture,
@@ -233,6 +233,8 @@ struct Latest {
     zoom_area: Option<[u32; 4]>,
     /// The magnification asked for: 5 or 10; 0 or 1 for the whole picture.
     zoom: u32,
+    /// Luminance, 256 levels (block 0x11 has R, G and B too).
+    histogram: Option<Vec<u32>>,
 }
 
 impl Latest {
@@ -242,6 +244,9 @@ impl Latest {
         self.sensor = ptpip::viewfinder_sensor(data).or(self.sensor);
         self.af_corner = ptpip::viewfinder_af_corner(data).or(self.af_corner);
         self.zoom_area = ptpip::viewfinder_zoom_area(data).or(self.zoom_area);
+        if let Some(histogram) = ptpip::viewfinder_histogram(data) {
+            self.histogram = Some(histogram.luminance.to_vec());
+        }
     }
 
     /// What live view's picture covers on the sensor: all of it, the magnify
@@ -403,6 +408,20 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn frames_keep_the_newest_histogram() {
+        let mut latest = Latest::default();
+        assert_eq!(latest.histogram, None);
+        // Block 0x11: Y, R, G, B, 256 levels each; the luminance is kept.
+        let channels: Vec<u32> = (0..4u32).flat_map(|channel| (0..256).map(move |level| channel * 1000 + level)).collect();
+        latest.take_in(&reply(&[(0x11, &channels)]));
+        let luminance = latest.histogram.clone().unwrap();
+        assert_eq!((luminance.len(), luminance[0], luminance[255]), (256, 0, 255));
+        // A frame without it keeps the last one.
+        latest.take_in(&reply(&[(0x0e, &[6960, 4640])]));
+        assert_eq!(latest.histogram, Some(luminance));
     }
 
     #[test]

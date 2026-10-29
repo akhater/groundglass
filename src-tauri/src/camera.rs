@@ -71,6 +71,8 @@ pub enum AfState {
 pub struct LiveDetails {
     pub level: Option<Level>,
     pub af_frames: Vec<AfFrame>,
+    /// Luminance: how many of live view's samples fall on each level, dark to bright (256 levels).
+    pub histogram: Option<Vec<u32>>,
 }
 
 #[derive(Serialize)]
