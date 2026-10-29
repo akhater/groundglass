@@ -24,6 +24,7 @@ const MAX_PACKET: usize = 16 << 20;
 const GET_DEVICE_INFO: u16 = 0x1001;
 const OPEN_SESSION: u16 = 0x1002;
 const CLOSE_SESSION: u16 = 0x1003;
+const GET_DEVICE_PROP_DESC: u16 = 0x1014;
 // Canon EOS operations (names as in libgphoto2's ptp.h).
 const SET_DEVICE_PROP_VALUE_EX: u16 = 0x9110;
 const SET_REMOTE_MODE: u16 = 0x9114;
@@ -37,6 +38,8 @@ const TOUCH_AF_POSITION: u16 = 0x915b;
 const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
 const ZOOM_POSITION: u16 = 0x9159;
+/// The standard battery level property, in percent.
+const BATTERY_LEVEL: u32 = 0x5001;
 // Canon EOS properties.
 const EVF_OUTPUT_DEVICE: u32 = 0xd1b0;
 const EVF_MODE: u32 = 0xd1b1;
@@ -256,6 +259,12 @@ impl Session {
     /// The camera doesn't list this property, but EOS Utility sets it.
     pub fn depth_of_field_preview(&mut self, on: bool) -> Result<(), Error> {
         self.set_property(DEPTH_OF_FIELD_PREVIEW, on as u32)
+    }
+
+    /// The battery's charge in percent (standard property 0x5001), None when
+    /// the camera gives no percent.
+    pub fn battery_level(&mut self) -> Result<Option<u8>, Error> {
+        Ok(battery_level(&self.operation(GET_DEVICE_PROP_DESC, &[BATTERY_LEVEL])?))
     }
 
     /// Reads (and drops) what the camera has to report. EOS Utility asks
@@ -555,6 +564,23 @@ fn viewfinder_words<const N: usize>(data: &[u8], kind: u32) -> Option<[u32; N]> 
     Some(std::array::from_fn(|i| u32::from_le_bytes(words[i])))
 }
 
+/// What AF is doing: block 0x1c's first word, the same codes as CCAPI's AF
+/// frame status (found 2026-10-29): 17 One-Shot holding focus, 20 Servo
+/// tracking, 0 while AF isn't running or found nothing.
+pub fn viewfinder_af_status(data: &[u8]) -> Option<u32> {
+    viewfinder_words::<1>(data, 0x1c).map(|[status]| status)
+}
+
+/// The battery's charge in percent from GetDevicePropDesc 0x5001: code, type
+/// (2, UINT8), get/set, default, then the current value (84 on the R6 Mark
+/// III when its screen showed 84%, 2026-10-29).
+pub fn battery_level(description: &[u8]) -> Option<u8> {
+    match description {
+        [_, _, 2, 0, _, _, percent, ..] if *percent <= 100 => Some(*percent),
+        _ => None,
+    }
+}
+
 /// How many of live view's samples fall on each of 256 levels, per channel.
 #[derive(Debug, PartialEq)]
 pub struct Histogram {
@@ -796,6 +822,43 @@ mod tests {
         assert_eq!(histogram.blue[255], 3255);
         assert_eq!(viewfinder_histogram(&data[..16]), None); // no histogram block
         assert_eq!(viewfinder_histogram(&data[..16 + 8 + 4092]), None); // cut short
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_af_status() {
+        // Block 0x1c (176 B) as the R6 Mark III sent it (2026-10-29): its first
+        // word 17 while One-Shot holds focus, 20 while Servo tracks, 0 otherwise.
+        let block = |words: &[u32]| {
+            let mut out = 184u32.to_le_bytes().to_vec();
+            out.extend_from_slice(&0x1cu32.to_le_bytes());
+            let mut body = [0u8; 176];
+            for (i, word) in words.iter().enumerate() {
+                body[4 * i..4 * i + 4].copy_from_slice(&word.to_le_bytes());
+            }
+            out.extend_from_slice(&body);
+            out
+        };
+        assert_eq!(viewfinder_af_status(&block(&[0x11, 0xa5, 0x19, 0xaa, 0xaa, 0xaa, 0xaa, 0x27, 0x1b])), Some(17));
+        assert_eq!(viewfinder_af_status(&block(&[0x14, 0xf6, 0x6d, 0xaa, 0xaa, 0xaa, 0xaa, 0x27, 0x1b])), Some(20));
+        assert_eq!(viewfinder_af_status(&block(&[])), Some(0));
+        assert_eq!(viewfinder_af_status(&[0; 8]), None); // no AF block
+    }
+
+    #[test]
+    fn battery_description_gives_the_percent() {
+        // GetDevicePropDesc 0x5001 as the R6 Mark III answered at 84% (2026-10-29):
+        // code, type UINT8, read only, default, current 84, then the steps it lists.
+        let description = [
+            0x01, 0x50, 0x02, 0x00, 0x00, 0x54, 0x54, 0x02, 0x05, 0x00, 0x64, 0x4b, 0x32, 0x19, 0x00,
+        ];
+        assert_eq!(battery_level(&description), Some(84));
+        assert_eq!(battery_level(&description[..6]), None); // cut short
+        let mut other_type = description;
+        other_type[2] = 0x04;
+        assert_eq!(battery_level(&other_type), None);
+        let mut over = description;
+        over[6] = 101;
+        assert_eq!(battery_level(&over), None);
     }
 
     #[test]

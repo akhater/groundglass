@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use crate::camera::{AfFrame, AfState, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
+use crate::camera::{AfFrame, AfState, Battery, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
 use crate::canon_codes::{self, PICTURE_STYLE_NEUTRAL};
 use crate::ccapi::ExposureSetting;
 use crate::ptpip::{self, Session};
@@ -204,12 +204,17 @@ impl Camera {
         })
     }
 
-    /// The battery's charge in percent, from what the camera last reported:
-    /// no camera traffic of its own.
-    pub fn battery(&self) -> Result<Option<u8>> {
+    /// The battery's charge: the camera's percent where it gives one, else
+    /// Canon's level from what the camera last reported, a step.
+    pub fn battery(&self) -> Result<Option<Battery>> {
+        // A refusal isn't an error here: the step stands in for it.
+        let percent = self.exchange(|link| link.session.battery_level()).or_else(|error| match error {
+            CameraError::Refused(_) => Ok(None),
+            other => Err(other),
+        })?;
         let link = lock(&self.link);
         let properties = link.as_ref().ok_or_else(not_connected)?.session.properties();
-        Ok(properties.value(BATTERY).and_then(canon_codes::battery_percent))
+        Ok(battery_from(percent, properties.value(BATTERY)))
     }
 
     pub fn is_open(&self) -> bool {
@@ -245,6 +250,9 @@ struct Latest {
     zoom: u32,
     /// Luminance, 256 levels (block 0x11 has R, G and B too).
     histogram: Option<Vec<u32>>,
+    /// What AF is doing, as CCAPI's AF frame status. Not kept from frame to
+    /// frame: the camera sends it with every frame, 0 while AF isn't running.
+    af_status: Option<u32>,
 }
 
 impl Latest {
@@ -254,6 +262,7 @@ impl Latest {
         self.sensor = ptpip::viewfinder_sensor(data).or(self.sensor);
         self.af_corner = ptpip::viewfinder_af_corner(data).or(self.af_corner);
         self.zoom_area = ptpip::viewfinder_zoom_area(data).or(self.zoom_area);
+        self.af_status = ptpip::viewfinder_af_status(data);
         if let Some(histogram) = ptpip::viewfinder_histogram(data) {
             self.histogram = Some(histogram.luminance.to_vec());
         }
@@ -283,7 +292,7 @@ impl Latest {
     }
 
     /// The AF point, in the middle of its magnify area, as a frame on the
-    /// picture. PTP gives no AF state yet: always "waiting".
+    /// picture, green once One-Shot holds focus and blue while Servo tracks.
     fn af_frames(&self) -> Vec<AfFrame> {
         let (Some(picture), Some([sensor_width, sensor_height]), Some([left, top])) =
             (self.picture(), self.sensor, self.af_corner)
@@ -301,7 +310,7 @@ impl Latest {
             y: ((centre[1] - size[1] / 2.0 - picture.y) / picture.height) as f32,
             width: (size[0] / picture.width) as f32,
             height: (size[1] / picture.height) as f32,
-            state: AfState::Waiting,
+            state: AfState::from_status(self.af_status.map(u64::from)),
         }]
     }
 }
@@ -338,6 +347,14 @@ fn setting_state(label: fn(u32) -> String, value: u32, allowed: &[u32]) -> Setti
 /// The allowed code that reads as `wanted`.
 fn setting_code(label: fn(u32) -> String, allowed: &[u32], wanted: &str) -> Option<u32> {
     allowed.iter().copied().find(|&code| label(code) == wanted)
+}
+
+/// The camera's percent where it gives one, else Canon's level as a step.
+fn battery_from(percent: Option<u8>, level: Option<u32>) -> Option<Battery> {
+    match percent {
+        Some(percent) => Some(Battery { percent, exact: true }),
+        None => level.and_then(canon_codes::battery_percent).map(|percent| Battery { percent, exact: false }),
+    }
 }
 
 fn not_connected() -> CameraError {
@@ -399,10 +416,10 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Area, EVENTS_EVERY, Latest, camera_error, events_due, firmware, sensor_point, setting_code, setting_state,
+        Area, EVENTS_EVERY, Latest, battery_from, camera_error, events_due, firmware, sensor_point, setting_code, setting_state,
         style_to_restore,
     };
-    use crate::camera::{AfFrame, AfState, CameraError, Level};
+    use crate::camera::{AfFrame, AfState, Battery, CameraError, Level};
     use crate::canon_codes::{self, PICTURE_STYLE_NEUTRAL};
     use crate::ptpip::Error;
     use std::time::Instant;
@@ -467,6 +484,24 @@ mod tests {
     }
 
     #[test]
+    fn the_af_frame_shows_lock_and_tracking_as_over_ccapi() {
+        let point = [(0x0e, &[6960, 4640][..]), (0x05, &[2784, 1856][..])];
+        let state = |status: u32| {
+            let mut latest = Latest::default();
+            latest.take_in(&reply(&[point[0], point[1], (0x1c, &[status, 0xa5, 0x19])]));
+            latest.af_frames()[0].state
+        };
+        assert_eq!(state(17), AfState::Focused); // One-Shot holding focus
+        assert_eq!(state(20), AfState::Tracking); // Servo
+        assert_eq!(state(0), AfState::Waiting); // AF not running, or found nothing
+        // Once AF stops, a frame without the block isn't left showing focus.
+        let mut latest = Latest::default();
+        latest.take_in(&reply(&[point[0], point[1], (0x1c, &[17])]));
+        latest.take_in(&reply(&[point[0], point[1]]));
+        assert_eq!(latest.af_frames()[0].state, AfState::Waiting);
+    }
+
+    #[test]
     fn zoomed_the_picture_is_the_magnify_area() {
         let mut latest = Latest::default();
         latest.take_in(&reply(&[(0x0e, &[6960, 4640]), (0x05, &[2784, 1856]), (0x0d, &[2784, 1856, 1392, 928])]));
@@ -504,6 +539,17 @@ mod tests {
         // A part of the sensor (as when zoomed): the same fractions of that part.
         let part = Area { x: 2784.0, y: 1856.0, width: 1392.0, height: 928.0 };
         assert_eq!(sensor_point(part, 0.5, 0.5), (3480, 2320));
+    }
+
+    #[test]
+    fn the_battery_is_exact_where_the_camera_gives_a_percent() {
+        // 84% on the R6 Mark III's screen, Canon's level 2 ("full") alongside (2026-10-29).
+        assert_eq!(battery_from(Some(84), Some(2)), Some(Battery { percent: 84, exact: true }));
+        // No percent (as some batteries may give): Canon's level, a step.
+        assert_eq!(battery_from(None, Some(2)), Some(Battery { percent: 100, exact: false }));
+        assert_eq!(battery_from(None, Some(5)), Some(Battery { percent: 25, exact: false }));
+        assert_eq!(battery_from(None, Some(3)), None);
+        assert_eq!(battery_from(None, None), None);
     }
 
     #[test]

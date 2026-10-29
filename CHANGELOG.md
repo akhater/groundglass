@@ -33,6 +33,11 @@ Newest first.
 
 - **Picture after stopping:** the picture goes black when live view stops,
   the app is hidden or the camera is lost, instead of keeping the last frame.
+- **AF frame in EOS Utility mode:** it turns green when One-Shot holds focus
+  and blue while Servo tracks, as in CCAPI mode.
+- **Battery in EOS Utility mode:** the camera's exact percent instead of a
+  rounded step. Where a camera or battery gives only a step (full, 75, 50,
+  25, low), in either mode, the gauge shows it with no number.
 
 ## 26.44.3 - 2026-10-29
 

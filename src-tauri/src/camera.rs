@@ -65,6 +65,29 @@ pub enum AfState {
     Area,
 }
 
+impl AfState {
+    /// From an AF frame's status as the R6 Mark III gives it, the same codes
+    /// over CCAPI (2026-10-28) and PTP (2026-10-29): 48 an AF point waiting,
+    /// 17 One-Shot holding focus, 20 Servo tracking, 32 the whole AF area
+    /// while Servo runs (CCAPI only). Others aren't known yet.
+    pub(crate) fn from_status(status: Option<u64>) -> Self {
+        match status {
+            Some(17) => Self::Focused,
+            Some(20) => Self::Tracking,
+            Some(32) => Self::Area,
+            _ => Self::Waiting,
+        }
+    }
+}
+
+/// The battery's charge in percent. Not `exact` when the camera gives only a
+/// step (full, 75, 50, 25, low): the screen then shows the gauge, no number.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Battery {
+    pub percent: u8,
+    pub exact: bool,
+}
+
 /// What comes with live view besides the picture, read a few times a second.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -189,8 +212,8 @@ impl Camera {
         }
     }
 
-    /// The battery's charge in percent, None when the camera doesn't say.
-    pub fn battery(&self) -> Result<Option<u8>> {
+    /// The battery's charge, None when the camera doesn't say.
+    pub fn battery(&self) -> Result<Option<Battery>> {
         match self {
             Self::Ccapi(camera) => camera.battery(),
             Self::Ptp(camera) => camera.battery(),

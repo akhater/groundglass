@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use ureq::Agent;
 
-use crate::camera::{AfFrame, AfState, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
+use crate::camera::{AfFrame, AfState, Battery, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
 
 /// Largest live view frame we accept. Medium frames measured 35-80 KB.
 const MAX_FRAME_BYTES: u64 = 4 * 1024 * 1024;
@@ -45,20 +45,6 @@ impl ExposureSetting {
             Self::Iso => "/shooting/settings/iso",
             Self::Av => "/shooting/settings/av",
             Self::Tv => "/shooting/settings/tv",
-        }
-    }
-}
-
-impl AfState {
-    /// From an AF frame's `status` as the R6 Mark III sends it (2026-10-28):
-    /// 48 an AF point waiting, 17 One-Shot holding focus, 20 Servo tracking,
-    /// 32 the whole AF area while Servo runs. Others aren't known yet.
-    fn from_status(status: Option<u64>) -> Self {
-        match status {
-            Some(17) => Self::Focused,
-            Some(20) => Self::Tracking,
-            Some(32) => Self::Area,
-            _ => Self::Waiting,
         }
     }
 }
@@ -223,7 +209,7 @@ impl Camera {
 
     /// The battery's charge in percent: from `batterylist` (ver110, in percent)
     /// where the camera has it, else from `battery` (ver100, in quarters).
-    pub fn battery(&self) -> Result<Option<u8>> {
+    pub fn battery(&self) -> Result<Option<Battery>> {
         let body = match self.request("GET", "/ver110/devicestatus/batterylist", None) {
             Err(CameraError::Refused(_)) => self.get("/devicestatus/battery")?,
             other => other?,
@@ -330,22 +316,23 @@ fn histogram_from(details: &[u8]) -> Option<Vec<u32>> {
     counts.iter().map(|count| count.as_u64().map(|count| count as u32)).collect()
 }
 
-/// The battery's charge in percent, from ver110 `batterylist` (its first
-/// battery, the level in percent) or ver100 `battery` (a word for the level).
-fn battery_from(body: &[u8]) -> Option<u8> {
+/// The battery's charge, from ver110 `batterylist` (its first battery, the
+/// level in percent) or ver100 `battery` (a word for the level: a step).
+fn battery_from(body: &[u8]) -> Option<Battery> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     let battery = json.get("batterylist").map_or(Some(&json), |list| list.get(0))?;
     let level = &battery["level"];
-    let percent = match level.as_str() {
-        Some("full") => 100,
-        Some("high") => 75,
-        Some("half") => 50,
-        Some("quarter") => 25,
-        Some("low") => 10,
-        Some(text) => text.parse().ok()?,
-        None => level.as_u64()?,
+    let (percent, exact) = match level.as_str() {
+        Some("full") => (100, false),
+        Some("high") => (75, false),
+        Some("half") => (50, false),
+        Some("quarter") => (25, false),
+        Some("low") => (10, false),
+        Some(text) => (text.parse().ok()?, true),
+        None => (level.as_u64()?, true),
     };
-    u8::try_from(percent).ok().filter(|&percent| percent <= 100)
+    let percent = u8::try_from(percent).ok().filter(|&percent| percent <= 100)?;
+    Some(Battery { percent, exact })
 }
 
 fn level_from(details: &[u8]) -> Option<Level> {
@@ -427,7 +414,7 @@ fn root_url(address: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AfFrame, AfState, Level, af_frames_from, battery_from, focus_point, histogram_from, level_from, root_url};
+    use super::{AfFrame, AfState, Battery, Level, af_frames_from, battery_from, focus_point, histogram_from, level_from, root_url};
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {
@@ -496,16 +483,18 @@ mod tests {
 
     #[test]
     fn battery_reads_the_first_battery_in_percent() {
+        let exact = |percent| Some(Battery { percent, exact: true });
+        let step = |percent| Some(Battery { percent, exact: false });
         // ver110 batterylist: the level in percent, as a string.
         let list = br#"{"batterylist":[{"position":"camera","name":"LP-E6P","kind":"battery","level":"87","quality":"good"}]}"#;
-        assert_eq!(battery_from(list), Some(87));
-        // ver100 battery: a word for the level.
-        assert_eq!(battery_from(br#"{"name":"LP-E6P","kind":"battery","level":"full","quality":"good"}"#), Some(100));
-        assert_eq!(battery_from(br#"{"level":"high"}"#), Some(75));
-        assert_eq!(battery_from(br#"{"level":"half"}"#), Some(50));
-        assert_eq!(battery_from(br#"{"level":"quarter"}"#), Some(25));
-        assert_eq!(battery_from(br#"{"level":"low"}"#), Some(10));
-        assert_eq!(battery_from(br#"{"level":90}"#), Some(90));
+        assert_eq!(battery_from(list), exact(87));
+        assert_eq!(battery_from(br#"{"level":90}"#), exact(90));
+        // ver100 battery: a word for the level, a step rather than a percent.
+        assert_eq!(battery_from(br#"{"name":"LP-E6P","kind":"battery","level":"full","quality":"good"}"#), step(100));
+        assert_eq!(battery_from(br#"{"level":"high"}"#), step(75));
+        assert_eq!(battery_from(br#"{"level":"half"}"#), step(50));
+        assert_eq!(battery_from(br#"{"level":"quarter"}"#), step(25));
+        assert_eq!(battery_from(br#"{"level":"low"}"#), step(10));
     }
 
     #[test]
