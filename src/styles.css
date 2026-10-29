@@ -233,6 +233,34 @@ button:disabled {
   }
 }
 
+/* Short phones on their side (360 px and less): smaller settings and buttons,
+   so the shutter stays whole. */
+@media (orientation: landscape) and (max-height: 380px) {
+  .band.camera .setting {
+    min-height: 40px;
+    padding-block: 1px;
+  }
+  .band.camera .setting strong {
+    font-size: 16px;
+    line-height: 20px;
+  }
+  .band.camera .setting:last-child strong {
+    font-size: 13px;
+  }
+  .band.camera .actions {
+    gap: 8px;
+  }
+  .band.camera .af {
+    width: 52px;
+    height: 52px;
+  }
+  .band.camera .shoot {
+    width: 64px;
+    height: 64px;
+    padding: 4px;
+  }
+}
+
 /* Large screens (desktop, tablet): the picture fills the window and the bands
    float over its edges, each tucked away with its arrow. */
 @media (orientation: landscape) and (min-width: 1000px) {
@@ -874,8 +902,15 @@ button:disabled {
     border-radius: 10px;
     background: var(--scrim);
   }
+  .histogram {
+    z-index: 6;
+  }
+  /* Beside the aids' choices, which cover the picture's left edge, so it stays in view. */
   .app:has(.picker) .histogram {
     display: block;
+  }
+  .app:has(.picker.assists) .histogram {
+    left: max(calc(var(--picture-left, 0px) + 10px), 252px);
   }
   .picker {
     grid-area: stage;
