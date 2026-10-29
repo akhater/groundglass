@@ -433,6 +433,25 @@ pub fn viewfinder_level(data: &[u8]) -> Option<Level> {
     Some(Level { roll: degrees(word(8)?), pitch: degrees(word(12)?) })
 }
 
+/// How many of live view's samples fall on each of 256 levels, per channel.
+#[derive(Debug, PartialEq)]
+pub struct Histogram {
+    pub luminance: [u32; 256],
+    pub red: [u32; 256],
+    pub green: [u32; 256],
+    pub blue: [u32; 256],
+}
+
+/// The camera's histogram from a GetViewFinderData reply: block 0x11 holds
+/// 4 x 256 u32, channels Y, R, G, B in that order (checked 2026-10-29 against
+/// the R6 Mark III's own frame).
+pub fn viewfinder_histogram(data: &[u8]) -> Option<Histogram> {
+    let body: &[u8; 4096] = viewfinder_block(data, 0x11)?.try_into().ok()?;
+    let words = body.as_chunks::<4>().0;
+    let channel = |c: usize| std::array::from_fn(|level| u32::from_le_bytes(words[256 * c + level]));
+    Some(Histogram { luminance: channel(0), red: channel(1), green: channel(2), blue: channel(3) })
+}
+
 /// The body of the first block of type `wanted` in a GetViewFinderData reply.
 pub fn viewfinder_block(data: &[u8], wanted: u32) -> Option<&[u8]> {
     let mut rest = data;
@@ -598,6 +617,28 @@ mod tests {
         }
         assert_eq!(viewfinder_level(&data), Some(Level { roll: 28.0, pitch: -1.0 }));
         assert_eq!(viewfinder_level(&data[..16]), None);
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_histogram() {
+        // Block 0x11: 4 channels (Y, R, G, B) x 256 levels x u32, after another block.
+        let mut data = 16u32.to_le_bytes().to_vec();
+        data.extend_from_slice(&0x0eu32.to_le_bytes());
+        data.extend_from_slice(&[0; 8]);
+        data.extend_from_slice(&(8 + 4096u32).to_le_bytes());
+        data.extend_from_slice(&0x11u32.to_le_bytes());
+        for channel in 0..4u32 {
+            for level in 0..256u32 {
+                data.extend_from_slice(&(channel * 1000 + level).to_le_bytes());
+            }
+        }
+        let histogram = viewfinder_histogram(&data).unwrap();
+        assert_eq!((histogram.luminance[0], histogram.luminance[255]), (0, 255));
+        assert_eq!((histogram.red[0], histogram.red[7]), (1000, 1007));
+        assert_eq!(histogram.green[128], 2128);
+        assert_eq!(histogram.blue[255], 3255);
+        assert_eq!(viewfinder_histogram(&data[..16]), None); // no histogram block
+        assert_eq!(viewfinder_histogram(&data[..16 + 8 + 4092]), None); // cut short
     }
 
     #[test]
