@@ -89,10 +89,13 @@ async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peak
       if (signal.aborted) break;
       if (camera.isRestartable(error)) continue; // restart live view at once
       info = null;
+      // No picture while the camera is away: an old frame would pass for live.
+      renderer.clear();
       onStatus({ state: "lost", message: camera.describe(error) });
       await sleep(RETRY_MS, signal);
     }
   }
+  renderer.clear();
   await camera.stopLiveView().catch(() => {});
 }
 
