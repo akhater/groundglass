@@ -204,18 +204,24 @@ export default function App() {
     const state = picker && exposure.states[picker];
     if (!picker || !state || state.choices.length === 0) return null;
     const pinned = ettr.pinned.includes(picker);
+    const label = SETTINGS.find((s) => s.key === picker)!.label;
     return (
       <Scale
-        label={SETTINGS.find((s) => s.key === picker)!.label}
+        label={label}
         values={state.choices.includes(state.value) ? state.choices : [state.value, ...state.choices]}
         value={state.value}
         onPick={(value) => void exposure.change(picker, value)}
         onClose={close}
         action={
           // ETTR keeps a pinned setting as it is; two at most, so one is left to move.
-          <button className="action" aria-pressed={pinned} disabled={!ettr.canPin(picker)} onClick={() => ettr.pin(picker)}>
-            <Icon name="pin" />
-            {pinned ? "Pinned" : "Pin"}
+          <button
+            className="lock"
+            aria-pressed={pinned}
+            aria-label={`${pinned ? "Unpin" : "Pin"} ${label.toLowerCase()}`}
+            disabled={!ettr.canPin(picker)}
+            onClick={() => ettr.pin(picker)}
+          >
+            <Icon name={pinned ? "pin" : "unpin"} />
           </button>
         }
       />
