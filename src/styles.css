@@ -693,7 +693,7 @@ button:disabled {
   background: var(--bad);
 }
 
-/* The camera's battery, a small gauge and its percent, as on the camera's screen. */
+/* The camera's battery, a small gauge as on the camera's screen, and its percent where exact. */
 .battery {
   display: flex;
   align-items: center;

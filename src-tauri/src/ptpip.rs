@@ -24,6 +24,7 @@ const MAX_PACKET: usize = 16 << 20;
 const GET_DEVICE_INFO: u16 = 0x1001;
 const OPEN_SESSION: u16 = 0x1002;
 const CLOSE_SESSION: u16 = 0x1003;
+const GET_DEVICE_PROP_DESC: u16 = 0x1014;
 // Canon EOS operations (names as in libgphoto2's ptp.h).
 const SET_DEVICE_PROP_VALUE_EX: u16 = 0x9110;
 const SET_REMOTE_MODE: u16 = 0x9114;
@@ -37,6 +38,8 @@ const TOUCH_AF_POSITION: u16 = 0x915b;
 const AF_CANCEL: u16 = 0x9160;
 const ZOOM: u16 = 0x9158;
 const ZOOM_POSITION: u16 = 0x9159;
+/// The standard battery level property, in percent.
+const BATTERY_LEVEL: u32 = 0x5001;
 // Canon EOS properties.
 const EVF_OUTPUT_DEVICE: u32 = 0xd1b0;
 const EVF_MODE: u32 = 0xd1b1;
@@ -256,6 +259,12 @@ impl Session {
     /// The camera doesn't list this property, but EOS Utility sets it.
     pub fn depth_of_field_preview(&mut self, on: bool) -> Result<(), Error> {
         self.set_property(DEPTH_OF_FIELD_PREVIEW, on as u32)
+    }
+
+    /// The battery's charge in percent (standard property 0x5001), None when
+    /// the camera gives no percent.
+    pub fn battery_level(&mut self) -> Result<Option<u8>, Error> {
+        Ok(battery_level(&self.operation(GET_DEVICE_PROP_DESC, &[BATTERY_LEVEL])?))
     }
 
     /// Reads (and drops) what the camera has to report. EOS Utility asks
@@ -555,6 +564,74 @@ fn viewfinder_words<const N: usize>(data: &[u8], kind: u32) -> Option<[u32; N]> 
     Some(std::array::from_fn(|i| u32::from_le_bytes(words[i])))
 }
 
+/// What AF is doing, from block 0x1c (found 2026-10-29).
+#[derive(Debug, PartialEq)]
+pub struct AfZones {
+    /// The same codes as CCAPI's AF frame status: 17 One-Shot holding focus,
+    /// 20 Servo tracking, 0 while AF isn't running or found nothing.
+    pub status: u32,
+    /// Columns and rows of AF zones over the sensor (39 x 27 on the R6 Mark III).
+    pub grid: [u32; 2],
+    /// The zones the camera shows in focus, as column and row.
+    pub in_focus: Vec<[u32; 2]>,
+}
+
+/// Block 0x1c: status, six words not understood, columns, rows, then a bit
+/// per zone, row by row, lowest bit first.
+pub fn viewfinder_af(data: &[u8]) -> Option<AfZones> {
+    let [status] = viewfinder_words(data, 0x1c)?;
+    let Some([.., columns, rows]) = viewfinder_words::<9>(data, 0x1c) else {
+        return Some(AfZones { status, grid: [0, 0], in_focus: Vec::new() });
+    };
+    let bits = &viewfinder_block(data, 0x1c)?[36..];
+    let fits = (columns as usize).checked_mul(rows as usize).is_some_and(|zones| zones <= 8 * bits.len());
+    let in_focus = if fits {
+        let lit = |&[column, row]: &[u32; 2]| {
+            let bit = (row * columns + column) as usize;
+            bits[bit / 8] & (1 << (bit % 8)) != 0
+        };
+        (0..rows).flat_map(|row| (0..columns).map(move |column| [column, row])).filter(lit).collect()
+    } else {
+        Vec::new()
+    };
+    Some(AfZones { status, grid: [columns, rows], in_focus })
+}
+
+/// One of the camera's AF frames, from block 0x8 (found 2026-10-29).
+#[derive(Debug, PartialEq)]
+pub struct AfBox {
+    /// 48 waiting, 17 or 18 focus held, 32 or 34 the whole AF area.
+    pub status: u32,
+    /// x, y, width, height in sensor pixels.
+    pub area: [u32; 4],
+}
+
+/// Block 0x8: a count, then per frame its status, a word not understood, x,
+/// y, width, height. Sent while the camera follows a subject (after a tap),
+/// and as the whole AF area when AF starts.
+pub fn viewfinder_af_frames(data: &[u8]) -> Vec<AfBox> {
+    let Some(body) = viewfinder_block(data, 0x08) else { return Vec::new() };
+    let words: Vec<u32> = body.as_chunks::<4>().0.iter().map(|word| u32::from_le_bytes(*word)).collect();
+    let Some((&count, frames)) = words.split_first() else { return Vec::new() };
+    frames
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .take(count as usize)
+        .map(|&[status, _, x, y, width, height]| AfBox { status, area: [x, y, width, height] })
+        .collect()
+}
+
+/// The battery's charge in percent from GetDevicePropDesc 0x5001: code, type
+/// (2, UINT8), get/set, default, then the current value (84 on the R6 Mark
+/// III when its screen showed 84%, 2026-10-29).
+pub fn battery_level(description: &[u8]) -> Option<u8> {
+    match description {
+        [_, _, 2, 0, _, _, percent, ..] if *percent <= 100 => Some(*percent),
+        _ => None,
+    }
+}
+
 /// How many of live view's samples fall on each of 256 levels, per channel.
 #[derive(Debug, PartialEq)]
 pub struct Histogram {
@@ -796,6 +873,85 @@ mod tests {
         assert_eq!(histogram.blue[255], 3255);
         assert_eq!(viewfinder_histogram(&data[..16]), None); // no histogram block
         assert_eq!(viewfinder_histogram(&data[..16 + 8 + 4092]), None); // cut short
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_af_zones() {
+        // Block 0x1c (176 B) as the R6 Mark III sent it (2026-10-29): status 17
+        // while One-Shot holds focus, 20 while Servo tracks, 0 otherwise; six
+        // words not understood; 39 columns, 27 rows; then a bit per AF zone,
+        // row by row, lowest bit first, set where the camera shows it in focus.
+        let block = |words: &[u32], zones: &[[usize; 2]]| {
+            let mut out = 184u32.to_le_bytes().to_vec();
+            out.extend_from_slice(&0x1cu32.to_le_bytes());
+            let mut body = [0u8; 176];
+            for (i, word) in words.iter().enumerate() {
+                body[4 * i..4 * i + 4].copy_from_slice(&word.to_le_bytes());
+            }
+            for [column, row] in zones {
+                let bit = row * 39 + column;
+                body[36 + bit / 8] |= 1 << (bit % 8);
+            }
+            out.extend_from_slice(&body);
+            out
+        };
+        let header = |status| [status, 0xa5, 0x19, 0xaa, 0xaa, 0xaa, 0xaa, 0x27, 0x1b];
+        let focused = block(&header(17), &[[10, 8], [11, 8], [38, 26]]);
+        assert_eq!(
+            viewfinder_af(&focused),
+            Some(AfZones { status: 17, grid: [39, 27], in_focus: vec![[10, 8], [11, 8], [38, 26]] })
+        );
+        let tracking = viewfinder_af(&block(&header(20), &[[0, 0]])).unwrap();
+        assert_eq!((tracking.status, tracking.in_focus), (20, vec![[0, 0]]));
+        // While AF isn't running: all zeros.
+        assert_eq!(viewfinder_af(&block(&[], &[])), Some(AfZones { status: 0, grid: [0, 0], in_focus: vec![] }));
+        // A grid larger than the bits sent: the status alone.
+        let mut too_big = header(17);
+        too_big[7] = 100;
+        assert!(viewfinder_af(&block(&too_big, &[])).unwrap().in_focus.is_empty());
+        assert_eq!(viewfinder_af(&[0; 8]), None); // no AF block
+    }
+
+    #[test]
+    fn viewfinder_data_gives_the_af_frames() {
+        // Block 0x8 as the R6 Mark III sent it (2026-10-29): a count, then per
+        // frame its status, a word not understood, x, y, width, height in
+        // sensor pixels. Tracking a subject, focus held (17):
+        let block = |words: &[u32]| {
+            let mut out = ((8 + 4 * words.len()) as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(&0x08u32.to_le_bytes());
+            for word in words {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out
+        };
+        let held = block(&[1, 0x11, 1, 0x11d2, 0x3a4, 0x434, 0x461]);
+        assert_eq!(viewfinder_af_frames(&held), vec![AfBox { status: 17, area: [4562, 932, 1076, 1121] }]);
+        // The whole AF area, as One-Shot shows it when it finds nothing.
+        let area = block(&[1, 0x22, 1, 0x8a, 4, 0x1a1c, 0x1218]);
+        assert_eq!(viewfinder_af_frames(&area), vec![AfBox { status: 34, area: [138, 4, 6684, 4632] }]);
+        // Two frames, then a count larger than what follows: what is there.
+        let two = block(&[2, 0x30, 1, 1, 2, 3, 4, 0x11, 1, 5, 6, 7, 8]);
+        assert_eq!(viewfinder_af_frames(&two).len(), 2);
+        assert_eq!(viewfinder_af_frames(&block(&[3, 0x30, 1, 1, 2, 3, 4])).len(), 1);
+        assert_eq!(viewfinder_af_frames(&[0; 8]), vec![]); // no frames block
+    }
+
+    #[test]
+    fn battery_description_gives_the_percent() {
+        // GetDevicePropDesc 0x5001 as the R6 Mark III answered at 84% (2026-10-29):
+        // code, type UINT8, read only, default, current 84, then the steps it lists.
+        let description = [
+            0x01, 0x50, 0x02, 0x00, 0x00, 0x54, 0x54, 0x02, 0x05, 0x00, 0x64, 0x4b, 0x32, 0x19, 0x00,
+        ];
+        assert_eq!(battery_level(&description), Some(84));
+        assert_eq!(battery_level(&description[..6]), None); // cut short
+        let mut other_type = description;
+        other_type[2] = 0x04;
+        assert_eq!(battery_level(&other_type), None);
+        let mut over = description;
+        over[6] = 101;
+        assert_eq!(battery_level(&over), None);
     }
 
     #[test]
