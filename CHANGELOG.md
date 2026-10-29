@@ -2,15 +2,25 @@
 
 Newest first.
 
-## 26.44.3 - unreleased
+## 26.44.4 - unreleased
+
+## 26.44.3 - 2026-10-29
 
 ### Added
 
 - **EOS Utility mode:** live view also works with the camera's Wi-Fi set to
-  "Connect to EOS Utility" (PTP/IP), with looks, zebra, peaking, crop, grid,
-  level, shoot and AF-ON. Groundglass asks the camera which Wi-Fi function it
-  runs, so the address field works the same for both. The first time, press
-  OK on the camera to pair. Exposure and tap to focus are CCAPI only for now.
+  "Connect to EOS Utility" (PTP/IP). Groundglass asks the camera which Wi-Fi
+  function it runs, so the address field works the same for both. The first
+  time, press OK on the camera to pair. Looks, zebra, peaking, crop, guides,
+  level, exposure, tap to focus, shoot and AF-ON work in both modes. Live view
+  runs in Picture Style Neutral, and the camera's own style is put back on
+  stop, exit and hide.
+- **x5 / x10 and DOF preview** (EOS Utility mode): magnify around the AF
+  point, and stop the lens down from the app. In CCAPI mode these buttons are
+  dimmed, since the camera doesn't offer them there.
+- **Histogram:** the camera's brightness histogram over the picture, in both
+  modes.
+- `groundglass-cli`: `ptp-*` commands for headless checks in EOS Utility mode.
 
 ## 26.44.2 - 2026-10-28
 
