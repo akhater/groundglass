@@ -59,9 +59,9 @@ export type Level = { roll: number; pitch: number };
 export type AfState = "waiting" | "focused" | "tracking" | "area";
 /** Mirrors `camera::AfFrame`: fractions of the picture. */
 export type AfFrame = { x: number; y: number; width: number; height: number; state: AfState };
-/** Mirrors `camera::LiveDetails`. */
-export type LiveDetails = { level: Level | null; afFrames: AfFrame[] };
-/** The level and AF frames, while live. */
+/** Mirrors `camera::LiveDetails`. `histogram`: luminance counts on 256 levels, dark to bright. */
+export type LiveDetails = { level: Level | null; afFrames: AfFrame[]; histogram: number[] | null };
+/** The level, AF frames and histogram, while live. */
 export const liveDetails = () => invoke<LiveDetails>("live_details");
 
 /** Looks: .cube files kept in the app's data folder. */

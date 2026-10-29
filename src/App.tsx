@@ -6,6 +6,7 @@ import { FocusButton, SETTINGS, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
 import { Composition, GUIDES, TURNING, type Guide } from "./Composition";
 import { Crop, cropBox, RATIOS, type Ratio } from "./Crop";
+import { Histogram } from "./Histogram";
 import { Level } from "./Level";
 import { MagnifyButtons, useMagnify } from "./Magnify";
 import { pictureBox } from "./picture";
@@ -65,6 +66,7 @@ export default function App() {
   const exposure = useExposure(live);
   const shot = useShoot(live);
   const [levelOn, setLevelOn] = useState(false);
+  const [histogramOn, setHistogramOn] = useState(false);
   const [guide, setGuide] = useState<Guide | "off">("off");
   /** Quarter turns of the triangle or spiral, 0..3. */
   const [guideRotation, setGuideRotation] = useState(0);
@@ -232,6 +234,7 @@ export default function App() {
           <Composition guide={guide} rotation={guideRotation} box={picture && (crop === "off" ? picture : cropBox(picture, crop))} />
         )}
         {live && levelOn && <Level level={details?.level ?? null} />}
+        {live && histogramOn && <Histogram counts={details?.histogram ?? null} />}
         {live && (
           <div className="stage-tools">
             <button aria-pressed={crop !== "off"} aria-expanded={picker === "crop"} onClick={() => toggle("crop")}>
@@ -242,6 +245,9 @@ export default function App() {
             </button>
             <button aria-pressed={levelOn} onClick={() => setLevelOn((on) => !on)}>
               Level
+            </button>
+            <button aria-pressed={histogramOn} onClick={() => setHistogramOn((on) => !on)}>
+              Histogram
             </button>
             {status.state === "live" && <MagnifyButtons camera={status.camera} magnify={magnify} />}
           </div>

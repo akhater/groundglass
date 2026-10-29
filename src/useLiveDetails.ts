@@ -1,4 +1,4 @@
-// The camera's level and AF frames, asked for a few times a second while live.
+// The camera's level, AF frames and histogram, asked for a few times a second while live.
 import { useEffect, useState } from "react";
 import * as camera from "./camera";
 
