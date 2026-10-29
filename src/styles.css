@@ -227,6 +227,11 @@ button:disabled {
   .settings .setting + .setting {
     background: none;
   }
+  .settings .setting small .icon {
+    top: 5px;
+    left: auto;
+    right: 6px;
+  }
   .settings .setting[aria-expanded="true"] {
     background: var(--accent-soft);
   }
@@ -503,11 +508,12 @@ button:disabled {
   color: var(--accent);
 }
 
-/* Pinned for ETTR: a lock in the corner, clear of the name in a narrow column. */
+/* Pinned for ETTR: a lock above the name (in the corner in a side band), clear of
+   the name in a narrow column. */
 .setting small .icon {
   position: absolute;
-  top: 5px;
-  right: 6px;
+  top: -8px;
+  left: calc(50% - 5.5px);
   width: 11px;
   height: 11px;
   color: var(--accent);

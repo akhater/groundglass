@@ -1,6 +1,6 @@
 // Expose to the right: one tap sets the brightest exposure that clips nothing,
 // moving only the settings not pinned. The camera does the rounds (ettr_run.rs);
-// this keeps the pins, says what it will move, and shows how it ended:
+// this keeps the pins and shows how it ended:
 // a setting at the end of its range flashes, as does the button when live view
 // didn't follow (exposure simulation off).
 import { useState } from "react";
@@ -14,7 +14,6 @@ const MOST_PINNED = 2;
 const FIRST_PINNED: camera.ExposureSetting[] = ["av", "tv"];
 /** How long a flash shows. */
 const FLASH_MS = 1600;
-const SHORT: Record<camera.ExposureSetting, string> = { tv: "Tv", av: "Av", iso: "ISO" };
 
 type States = Partial<Record<camera.ExposureSetting, camera.SettingState>>;
 
@@ -35,7 +34,6 @@ export function useEttr(live: boolean, states: States, refresh: () => Promise<vo
   const [flash, setFlash] = useState<(camera.ExposureSetting | "button")[]>([]);
   const [error, setError] = useState("");
 
-  const free = (["tv", "av", "iso"] as const).filter((key) => !pinned.includes(key));
   // As ettr_run.rs asks: the free settings settable and not on auto, none pinned on auto (Auto ISO).
   const usable = (["tv", "av", "iso"] as const).every((key) => {
     const state = states[key];
@@ -79,7 +77,6 @@ export function useEttr(live: boolean, states: States, refresh: () => Promise<vo
     error,
     run,
     disabled: !live || !usable,
-    moves: free.map((key) => SHORT[key]).join("·"),
   };
 }
 
@@ -90,10 +87,9 @@ export function EttrButton({ ettr }: { ettr: ReturnType<typeof useEttr> }) {
       className={className}
       disabled={ettr.disabled}
       onClick={() => void ettr.run()}
-      aria-label={`Expose to the right, moving ${ettr.moves}`}
+      aria-label="Expose to the right"
     >
       ETTR
-      <small>sets {ettr.moves}</small>
     </button>
   );
 }
