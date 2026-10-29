@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use ureq::Agent;
 
+use crate::camera::{AfFrame, AfState, CameraError, CameraInfo, Level, LiveDetails, Result, SettingState};
+
 /// Largest live view frame we accept. Medium frames measured 35-80 KB.
 const MAX_FRAME_BYTES: u64 = 4 * 1024 * 1024;
 /// After a start, the camera answers "Live view not started" for a moment.
@@ -26,29 +28,6 @@ const FIRST_FRAME_WAIT: Duration = Duration::from_secs(3);
 /// Waits before asking again after "Device busy", as open-eos-control does
 /// (`JPEG_FRAME_BUSY_RETRY_DELAYS_MILLIS` in `CcapiClient.kt`, 089e71a3).
 const BUSY_RETRY_MS: [u64; 2] = [50, 100];
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", content = "detail")]
-pub enum CameraError {
-    /// No answer: wrong address, camera asleep, or Wi-Fi dropped.
-    Unreachable(String),
-    /// The camera's live view is off; starting it again fixes this.
-    LiveViewOff,
-    /// "Device busy" or "During shooting or recording": the camera can't
-    /// answer this instant, e.g. just after live view starts or while a photo
-    /// is taken. Asking again shortly fixes it.
-    Busy,
-    /// The camera answered with an error.
-    Refused(String),
-}
-
-type Result<T> = std::result::Result<T, CameraError>;
-
-#[derive(Serialize)]
-pub struct CameraInfo {
-    pub model: String,
-    pub firmware: String,
-}
 
 /// The exposure settings the app shows. Paths as open-eos-control uses them
 /// (`PRIMARY_SETTING_ENDPOINTS` in `CcapiClient.kt`, 089e71a3).
@@ -70,36 +49,10 @@ impl ExposureSetting {
     }
 }
 
-/// The camera's electronic level, in degrees from level (-180..180).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-pub struct Level {
-    pub roll: f32,
-    pub pitch: f32,
-}
-
-/// An AF frame as fractions of live view's picture (top-left corner and size).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-pub struct AfFrame {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-    pub state: AfState,
-}
-
-/// What an AF frame shows, from its `status` as the R6 Mark III sends it
-/// (2026-10-28): 48 an AF point waiting, 17 One-Shot holding focus, 20 Servo
-/// tracking, 32 the whole AF area while Servo runs. Others aren't known yet.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AfState {
-    Waiting,
-    Focused,
-    Tracking,
-    Area,
-}
-
 impl AfState {
+    /// From an AF frame's `status` as the R6 Mark III sends it (2026-10-28):
+    /// 48 an AF point waiting, 17 One-Shot holding focus, 20 Servo tracking,
+    /// 32 the whole AF area while Servo runs. Others aren't known yet.
     fn from_status(status: Option<u64>) -> Self {
         match status {
             Some(17) => Self::Focused,
@@ -108,20 +61,6 @@ impl AfState {
             _ => Self::Waiting,
         }
     }
-}
-
-/// What comes with live view besides the picture, read a few times a second.
-#[derive(Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveDetails {
-    pub level: Option<Level>,
-    pub af_frames: Vec<AfFrame>,
-}
-
-#[derive(Serialize)]
-pub struct SettingState {
-    pub value: String,
-    pub choices: Vec<String>,
 }
 
 pub struct Camera {

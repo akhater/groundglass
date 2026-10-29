@@ -186,7 +186,7 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
     use groundglass_lib::ptpip::Session;
     let mut session = Session::open(host, Duration::from_secs(90))?;
     let started = Instant::now();
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         println!("live view started in {} ms", started.elapsed().as_millis());
         let (mut frames, mut empty, mut bytes, mut repeats) = (0u32, 0u32, 0usize, 0u32);
@@ -229,7 +229,7 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
     println!("live view output off: {stopped:?}");
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(stopped).and(closed)
+    result.and(stopped.map_err(String::from)).and(closed.map_err(String::from))
 }
 
 /// Steps through x1, x5, x10, back to x1, then DOF preview on and off, saving
@@ -238,7 +238,7 @@ fn ptp_live(host: &str, length: Duration, save: Option<&String>) -> Result<(), S
 fn ptp_zoom(host: &str, dir: &str) -> Result<(), String> {
     use groundglass_lib::ptpip::Session;
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         let grab = |session: &mut Session, name: &str| -> Result<(), String> {
             // Let the camera settle, then keep the newest frame.
@@ -278,7 +278,7 @@ fn ptp_zoom(host: &str, dir: &str) -> Result<(), String> {
     }
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Five seconds with live view to us only, five with the camera's screen too
@@ -287,7 +287,7 @@ fn ptp_zoom(host: &str, dir: &str) -> Result<(), String> {
 fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     use groundglass_lib::ptpip::Session;
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         let run = |session: &mut Session, length: Duration| -> Result<Option<Vec<u8>>, String> {
             let started = Instant::now();
             let mut last = None;
@@ -316,7 +316,7 @@ fn ptp_screen(host: &str, dir: &str) -> Result<(), String> {
     println!("live view output off: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Reads ISO (0xD103), aperture (0xD101) and shutter (0xD102) as the camera
@@ -326,7 +326,7 @@ fn ptp_exposure(host: &str) -> Result<(), String> {
     use groundglass_lib::ptpip::Session;
     const SETTINGS: [(u32, &str); 3] = [(0xd103, "ISO"), (0xd101, "aperture"), (0xd102, "shutter")];
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         session.events()?;
         for (code, name) in SETTINGS {
@@ -354,7 +354,7 @@ fn ptp_exposure(host: &str) -> Result<(), String> {
     println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Takes one photo during live view, then keeps live view going for three
@@ -365,7 +365,7 @@ fn ptp_shoot(host: &str) -> Result<(), String> {
     // Block 0x1c has content (non-zero) only while autofocus runs.
     let focusing = |data: &[u8]| viewfinder_block(data, 0x1c).is_some_and(|b| b.iter().any(|&x| x != 0));
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         while session.frame()?.is_none() {}
         session.events()?;
@@ -408,7 +408,7 @@ fn ptp_shoot(host: &str) -> Result<(), String> {
     println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Taps the AF point to a quarter in from the top left, a quarter in from the
@@ -421,7 +421,7 @@ fn ptp_tap(host: &str) -> Result<(), String> {
         Some((u32::from_le_bytes(b.get(..4)?.try_into().ok()?), u32::from_le_bytes(b.get(4..8)?.try_into().ok()?)))
     };
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         // Newest data after a moment, so the camera has caught up.
         let latest = |session: &mut Session| -> Result<Vec<u8>, String> {
@@ -452,7 +452,7 @@ fn ptp_tap(host: &str) -> Result<(), String> {
     println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Prints the camera's level (from live view data) twice a second for
@@ -460,7 +460,7 @@ fn ptp_tap(host: &str) -> Result<(), String> {
 fn ptp_level(host: &str, length: Duration) -> Result<(), String> {
     use groundglass_lib::ptpip::{Session, viewfinder_level};
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         let started = Instant::now();
         let mut printed = Instant::now() - Duration::from_secs(1);
@@ -481,7 +481,7 @@ fn ptp_level(host: &str, length: Duration) -> Result<(), String> {
     println!("live view back to the camera's screen: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 /// Live view for `length`, printing (with the second it happened) every
@@ -508,7 +508,7 @@ fn ptp_watch(host: &str, length: Duration) -> Result<(), String> {
     }
     let hex = |b: &[u8]| b.iter().take(48).map(|x| format!("{x:02x}")).collect::<String>();
     let mut session = Session::open(host, Duration::from_secs(90))?;
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         session.start_live_view()?;
         let started = Instant::now();
         let mut blocks: HashMap<u32, Vec<u8>> = HashMap::new();
@@ -571,7 +571,7 @@ fn ptp_watch(host: &str, length: Duration) -> Result<(), String> {
     println!("live view output off: {:?}", session.stop_live_view());
     let closed = session.close();
     println!("session closed: {closed:?}");
-    result.and(closed)
+    result.and(closed.map_err(String::from))
 }
 
 fn setting(name: Option<&String>) -> Result<ExposureSetting, String> {

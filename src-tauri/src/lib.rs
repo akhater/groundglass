@@ -1,13 +1,16 @@
+pub mod camera;
 pub mod canon_codes;
 pub mod ccapi;
+mod eos;
 mod luts;
 pub mod ptpip;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ccapi::{Camera, CameraError, CameraInfo, ExposureSetting, LiveDetails, SettingState};
-use tauri::{AppHandle, Manager, RunEvent, State, ipc::Response};
+use camera::{Camera, CameraError, CameraInfo, LiveDetails, SettingState};
+use ccapi::ExposureSetting;
+use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
 /// without holding the lock, so a slow frame never blocks a stop.
@@ -25,8 +28,13 @@ impl Connection {
 }
 
 #[tauri::command(async)]
-fn connect(address: String, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
-    let (camera, info) = Camera::connect(&address)?;
+/// `pairing` hears once when the camera is in EOS Utility mode, so the screen can say to press OK.
+fn connect(address: String, pairing: Channel<bool>, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
+    // Let go of the last camera first: over PTP the camera takes one session at a time.
+    drop(connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
+    let (camera, info) = Camera::connect(&address, || {
+        let _ = pairing.send(true);
+    })?;
     *connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(camera));
     Ok(info)
 }
@@ -49,9 +57,7 @@ fn frame(connection: State<Connection>) -> Result<Response, CameraError> {
 
 #[tauri::command(async)]
 fn shoot(connection: State<Connection>) -> Result<(), CameraError> {
-    // No autofocus from the shutter: focus stays on AF-ON (back-button focus),
-    // as a camera with focus split from the shutter expects.
-    connection.camera()?.shoot(false)
+    connection.camera()?.shoot()
 }
 
 /// Back-button focus: `true` on press, `false` on release.
@@ -126,9 +132,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Groundglass")
         .run(|app, event| {
-            // Leave the camera as we found it: live view off, its screen on, its Picture Style back.
-            // Only while live: after a long idle the camera may have closed the
-            // session, and a session must not be reopened by anything but `connect`.
+            // Leave the camera as we found it: live view off, its screen on, its Picture Style back,
+            // and over PTP the session closed. `is_live` says when that is needed and safe.
             if let RunEvent::Exit = event
                 && let Ok(camera) = app.state::<Connection>().camera()
                 && camera.is_live()

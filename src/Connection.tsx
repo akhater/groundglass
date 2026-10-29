@@ -112,6 +112,8 @@ function label(status: Status | null): string {
       return `Live · ${status.fps} fps`;
     case "lost":
       return `${status.message} Retrying…`;
+    case "connecting":
+      return status.hint ? `Connecting… ${status.hint}` : "Connecting…";
     default:
       return "Connecting…";
   }
