@@ -56,7 +56,7 @@ export function useExposure(live: boolean) {
 
   const focus = (held: boolean) => void camera.autofocus(held).catch((e) => setError(camera.describe(e)));
 
-  return { states, error, change, focus };
+  return { states, error, change, focus, refresh };
 }
 
 /** Back-button focus: the camera focuses for as long as this is held. */

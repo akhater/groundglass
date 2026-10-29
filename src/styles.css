@@ -163,6 +163,12 @@ button:disabled {
   justify-self: start;
 }
 
+.actions .ettr {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+}
+
 .fold {
   display: none;
 }
@@ -221,15 +227,38 @@ button:disabled {
   .settings .setting + .setting {
     background: none;
   }
+  .settings .setting small .icon {
+    top: 5px;
+    left: auto;
+    right: 6px;
+  }
   .settings .setting[aria-expanded="true"] {
     background: var(--accent-soft);
   }
+  /* AF-ON with ETTR beside it, as AF-ON and AE lock sit on the camera's back; the shutter below. */
   .actions {
     margin-top: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
+    grid-template-columns: auto auto;
+    justify-content: center;
+    gap: 14px 8px;
+  }
+  .actions .af,
+  .actions .ettr {
+    width: 54px;
+    height: 54px;
+  }
+  .actions .af {
+    grid-column: 1;
+    justify-self: auto;
+  }
+  .actions .ettr {
+    grid-column: 2;
+    justify-self: auto;
+  }
+  .actions .shoot {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
   }
 }
 
@@ -250,7 +279,8 @@ button:disabled {
   .band.camera .actions {
     gap: 8px;
   }
-  .band.camera .af {
+  .band.camera .af,
+  .band.camera .ettr {
     width: 52px;
     height: 52px;
   }
@@ -434,6 +464,7 @@ button:disabled {
 
 /* A camera setting: name small, value large. */
 .setting {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -477,6 +508,18 @@ button:disabled {
   color: var(--accent);
 }
 
+/* Pinned for ETTR: a lock above the name (in the corner in a side band), clear of
+   the name in a narrow column. */
+.setting small .icon {
+  position: absolute;
+  top: -8px;
+  left: calc(50% - 5.5px);
+  width: 11px;
+  height: 11px;
+  color: var(--accent);
+  stroke-width: 2.4;
+}
+
 .setting[aria-expanded="true"] small {
   color: rgb(255 190 61 / 0.7);
 }
@@ -485,8 +528,9 @@ button:disabled {
   opacity: 0.35;
 }
 
-/* Back-button focus: lights up while held. */
-.af {
+/* Back-button focus: lights up while held. ETTR, beside it, lights up while it works. */
+.af,
+.ettr {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -505,25 +549,50 @@ button:disabled {
   -webkit-touch-callout: none;
 }
 
-.af small {
+.af small,
+.ettr small {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--muted);
 }
 
-.af.held {
+/* ETTR's mark (a histogram against the clipping edge) over its name, set like the settings' names. */
+.ettr {
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-indent: 0.15em;
+}
+
+.af.held,
+.ettr.running {
   background: var(--accent);
   box-shadow: none;
   color: var(--on-accent);
 }
 
-.af.held small {
+.af.held small,
+.ettr.running small {
   color: inherit;
 }
 
-.af:disabled {
+.af:disabled,
+.ettr:disabled {
   opacity: 0.35;
+}
+
+/* After ETTR: a setting at the end of its range, or the button when live view didn't follow. */
+.setting.limit,
+.ettr.limit {
+  animation: limit 0.2s ease-in-out 8 alternate;
+}
+
+@keyframes limit {
+  to {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
 }
 
 /* The shutter: one big round target for the thumb. */
@@ -753,7 +822,30 @@ button:disabled {
   height: 17px;
 }
 
+/* ETTR pin: the band's lock, open when free, closed and lit when pinned. */
+.picker .lock {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.picker .lock .icon {
+  margin: auto;
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.4;
+}
+
+.picker .lock[aria-pressed="true"] {
+  color: var(--accent);
+}
+
 .picker .action:disabled,
+.picker .lock:disabled,
 .picker .step:disabled {
   opacity: 0.3;
 }
@@ -1174,6 +1266,8 @@ button:disabled {
   position: absolute;
   border-radius: 3px;
   background: var(--scrim);
+  /* A light edge, so the dark track still shows on a dark picture. */
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.45);
 }
 
 /* The middle mark: level. */

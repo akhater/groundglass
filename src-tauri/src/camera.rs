@@ -106,7 +106,7 @@ pub struct SettingState {
 
 pub enum Camera {
     Ccapi(ccapi::Camera),
-    Ptp(Box<eos::Camera>),
+    Ptp(eos::Camera),
 }
 
 impl Camera {
@@ -120,7 +120,7 @@ impl Camera {
         match ptpip::device_description(host).map_or(Mode::Ccapi, |description| mode(&description)) {
             Mode::Ptp => {
                 on_pairing();
-                eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(Box::new(camera)), info))
+                eos::Camera::connect(host).map(|(camera, info)| (Self::Ptp(camera), info))
             }
             Mode::Ccapi => ccapi::Camera::connect(address).map(|(camera, info)| (Self::Ccapi(camera), info)),
         }
@@ -185,6 +185,15 @@ impl Camera {
         match self {
             Self::Ccapi(camera) => camera.live_details(),
             Self::Ptp(camera) => Ok(camera.live_details()),
+        }
+    }
+
+    /// The newest histogram for judging clipping: luminance over CCAPI, with R, G
+    /// and B too over PTP. Empty before the first.
+    pub fn histogram_channels(&self) -> Result<Vec<Vec<u32>>> {
+        match self {
+            Self::Ccapi(camera) => Ok(camera.live_details()?.histogram.into_iter().collect()),
+            Self::Ptp(camera) => Ok(camera.histogram_channels()),
         }
     }
 

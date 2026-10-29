@@ -6,6 +6,12 @@ Newest first.
 
 ### Added
 
+- **ETTR (expose to the right):** one tap beside AF-ON sets the brightest
+  exposure that clips nothing, from the camera's live histogram, in a second
+  or two. Pin up to two of shutter, aperture and ISO from their scale (a lock
+  shows by the name); ETTR moves the others, raising ISO last. A spot under
+  0.1% of the picture (a lamp, a glint) may clip. A setting at the end of its
+  range flashes; turning a dial stops it. Needs M with ISO not on auto.
 - **Battery:** the camera's battery level next to the frame rate, red at 20%
   and under, in both Wi-Fi modes. It is read every 30 seconds.
 
@@ -33,6 +39,8 @@ Newest first.
 
 - **Picture after stopping:** the picture goes black when live view stops,
   the app is hidden or the camera is lost, instead of keeping the last frame.
+- **Level on a dark picture:** the roll and tilt tracks have a light edge, so
+  they show on dark scenes too.
 - **AF frames in EOS Utility mode:** drawn where and as the camera draws them
   (around the areas in focus, or the frame following a subject after a tap),
   green when One-Shot holds focus and blue while Servo tracks, as in CCAPI
