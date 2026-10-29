@@ -1,7 +1,7 @@
 // An exposure setting's values as a scale beside the picture: upright in a
 // side band, across under the picture on a tall screen. Tap a value, or step
 // with - and +. It stays open, so stepping through values is one tap each.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "./icons";
 
 type Props = {
@@ -10,9 +10,11 @@ type Props = {
   value: string;
   onPick: (value: string) => void;
   onClose: () => void;
+  /** Beside the title, e.g. Pin. */
+  action?: ReactNode;
 };
 
-export function Scale({ label, values, value, onPick, onClose }: Props) {
+export function Scale({ label, values, value, onPick, onClose, action }: Props) {
   const list = useRef<HTMLDivElement>(null);
   const first = useRef(true);
   const index = values.indexOf(value);
@@ -39,6 +41,7 @@ export function Scale({ label, values, value, onPick, onClose }: Props) {
     <div className="picker dial camera" role="dialog" aria-label={label}>
       <header>
         <h2>{label}</h2>
+        {action}
         <button className="close" onClick={onClose} aria-label={`Close ${label}`}>
           <Icon name="close" />
         </button>
