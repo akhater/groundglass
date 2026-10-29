@@ -371,8 +371,19 @@ pub fn device_description(host: &str) -> Result<Vec<u8>, Error> {
     );
     stream.write_all(request.as_bytes())?;
     let mut description = Vec::new();
-    stream.read_to_end(&mut description)?;
+    let mut chunk = [0u8; 2048];
+    // Read up to the end of the XML: in CCAPI mode the camera keeps the connection open.
+    while !description_complete(&description) {
+        match stream.read(&mut chunk)? {
+            0 => break,
+            n => description.extend_from_slice(&chunk[..n]),
+        }
+    }
     Ok(description)
+}
+
+fn description_complete(description: &[u8]) -> bool {
+    description.windows(7).any(|w| w == b"</root>")
 }
 
 fn socket_address(host: &str, port: u16) -> Result<SocketAddr, Error> {
@@ -637,6 +648,13 @@ mod tests {
             operation_request(0x1002, 0, &[1]),
             vec![1, 0, 0, 0, 0x02, 0x10, 0, 0, 0, 0, 1, 0, 0, 0]
         );
+    }
+
+    #[test]
+    fn the_description_ends_with_its_root_element() {
+        // In CCAPI mode the camera keeps the connection open after the XML (2026-10-29).
+        assert!(!description_complete(b"HTTP/1.1 200 OK\r\n\r\n<?xml version=\"1.0\"?><root><device>"));
+        assert!(description_complete(b"HTTP/1.1 200 OK\r\n\r\n<root><device></device></root>\r\n"));
     }
 
     #[test]
