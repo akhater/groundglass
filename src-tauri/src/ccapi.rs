@@ -175,6 +175,15 @@ impl Camera {
         })
     }
 
+    /// The shooting mode as the dial names it ("Av"); None where the camera
+    /// doesn't say (ver110 only).
+    pub fn shooting_mode(&self) -> Result<Option<String>> {
+        match self.request("GET", "/ver110/shooting/settings/shootingmode", None) {
+            Err(CameraError::Refused(_)) => Ok(None),
+            other => Ok(shooting_mode_from(&other?)),
+        }
+    }
+
     pub fn set_exposure_setting(&self, setting: ExposureSetting, value: &str) -> Result<()> {
         let json = serde_json::json!({ "value": value }).to_string();
         self.put(setting.path(), &json)
@@ -412,9 +421,38 @@ fn root_url(address: &str) -> String {
     format!("http://{host}{port}/ccapi")
 }
 
+/// From ver110 `shootingmode` ({"value":"av"}), as the dial names it. None for a mode we don't know.
+fn shooting_mode_from(body: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let mode = match json["value"].as_str()? {
+        "p" => "P",
+        "tv" => "Tv",
+        "av" => "Av",
+        "m" => "M",
+        "bulb" => "B",
+        _ => return None,
+    };
+    Some(mode.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AfFrame, AfState, Battery, Level, af_frames_from, battery_from, focus_point, histogram_from, level_from, root_url};
+    use super::{
+        AfFrame, AfState, Battery, Level, af_frames_from, battery_from, focus_point, histogram_from, level_from, root_url,
+        shooting_mode_from,
+    };
+
+    #[test]
+    fn the_shooting_mode_reads_as_the_dial_shows_it() {
+        // ver110 shootingmode as the R6 Mark III gave it on each dial position (2026-10-29).
+        assert_eq!(shooting_mode_from(br#"{"value":"p"}"#).as_deref(), Some("P"));
+        assert_eq!(shooting_mode_from(br#"{"value":"tv"}"#).as_deref(), Some("Tv"));
+        assert_eq!(shooting_mode_from(br#"{"value":"av"}"#).as_deref(), Some("Av"));
+        assert_eq!(shooting_mode_from(br#"{"value":"m"}"#).as_deref(), Some("M"));
+        assert_eq!(shooting_mode_from(br#"{"value":"bulb"}"#).as_deref(), Some("B"));
+        assert_eq!(shooting_mode_from(br#"{"value":"scn"}"#), None);
+        assert_eq!(shooting_mode_from(b"not json"), None);
+    }
 
     #[test]
     fn root_url_accepts_what_the_camera_shows() {

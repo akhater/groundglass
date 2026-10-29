@@ -1,24 +1,24 @@
 //! Canon EOS exposure codes (PTP properties 0xD103 ISO, 0xD101 aperture,
 //! 0xD102 shutter speed) written as CCAPI writes them, so both Wi-Fi functions
 //! show the same: "6400", "f9.0", "f11", "1/125", "0\"8", "auto", "bulb";
-//! and Picture Styles (0xD110).
+//! Picture Styles (0xD110) and the shooting mode (0xD105).
 //! Codes from libgphoto2's camlibs/ptp2/config.c (canon_isospeed, canon_aperture,
 //! canon_shutterspeed, canon_eos_picturestyle; LGPL-2.1+, Marcus Meissner and
 //! contributors), with long shutter speeds written the way Canon writes them.
 //! Exposure codes count eighths of a stop: +3 and +5 are thirds, +4 a half.
 
-/// The ISO speed, or the code in hex if it isn't one we know.
-pub fn iso(code: u32) -> String {
+/// The ISO speed, None for a code we don't know.
+pub fn iso(code: u32) -> Option<&'static str> {
     label(ISO, code)
 }
 
-/// The f-number, or the code in hex if it isn't one we know.
-pub fn aperture(code: u32) -> String {
+/// The f-number, None for a code we don't know.
+pub fn aperture(code: u32) -> Option<&'static str> {
     label(APERTURE, code)
 }
 
-/// The shutter speed, or the code in hex if it isn't one we know.
-pub fn shutter_speed(code: u32) -> String {
+/// The shutter speed, None for a code we don't know.
+pub fn shutter_speed(code: u32) -> Option<&'static str> {
     label(SHUTTER_SPEED, code)
 }
 
@@ -28,7 +28,12 @@ pub const PICTURE_STYLE_NEUTRAL: u32 = 0x84;
 
 /// The Picture Style as the camera's menu names it, or the code in hex if it isn't one we know.
 pub fn picture_style(code: u32) -> String {
-    label(PICTURE_STYLE, code)
+    label(PICTURE_STYLE, code).map_or_else(|| format!("0x{code:02x}"), str::to_string)
+}
+
+/// The shooting mode (property 0xD105) as the dial names it, None for a code we don't know.
+pub fn shooting_mode(code: u32) -> Option<&'static str> {
+    label(SHOOTING_MODE, code)
 }
 
 /// The battery's charge in percent from property 0xD111, or None for a code
@@ -45,12 +50,12 @@ pub fn battery_percent(code: u32) -> Option<u8> {
     }
 }
 
-fn label(table: &[(u32, &str)], code: u32) -> String {
-    table
-        .iter()
-        .find(|(known, _)| *known == code)
-        .map_or_else(|| format!("0x{code:02x}"), |(_, label)| label.to_string())
+fn label(table: &[(u32, &'static str)], code: u32) -> Option<&'static str> {
+    table.iter().find(|(known, _)| *known == code).map(|&(_, label)| label)
 }
+
+/// libgphoto2's canon_eos_autoexposuremode, P to M as the R6 Mark III reported them.
+const SHOOTING_MODE: &[(u32, &str)] = &[(0, "P"), (1, "Tv"), (2, "Av"), (3, "M"), (4, "B")];
 
 const ISO: &[(u32, &str)] = &[
     (0x00, "auto"),
@@ -262,39 +267,56 @@ mod tests {
 
     #[test]
     fn iso_codes_read_as_the_camera_shows_them() {
-        assert_eq!(iso(0x48), "100");
-        assert_eq!(iso(0x70), "3200");
-        assert_eq!(iso(0x78), "6400");
-        assert_eq!(iso(0x7b), "8000");
-        assert_eq!(iso(0x98), "102400");
-        assert_eq!(iso(0x00), "auto");
-        assert_eq!(iso(0x1234), "0x1234");
+        assert_eq!(iso(0x48), Some("100"));
+        assert_eq!(iso(0x70), Some("3200"));
+        assert_eq!(iso(0x78), Some("6400"));
+        assert_eq!(iso(0x7b), Some("8000"));
+        assert_eq!(iso(0x98), Some("102400"));
+        assert_eq!(iso(0x00), Some("auto"));
+        assert_eq!(iso(0x1234), None);
     }
 
     #[test]
     fn aperture_codes_read_as_ccapi_writes_them() {
-        assert_eq!(aperture(0x20), "f2.8");
-        assert_eq!(aperture(0x28), "f4.0");
-        assert_eq!(aperture(0x08), "f1.0");
-        assert_eq!(aperture(0x3b), "f9.0");
-        assert_eq!(aperture(0x3c), "f9.5");
-        assert_eq!(aperture(0x3d), "f10");
-        assert_eq!(aperture(0x50), "f22");
-        assert_eq!(aperture(0xffff), "auto");
-        assert_eq!(aperture(0x01), "0x01");
+        assert_eq!(aperture(0x20), Some("f2.8"));
+        assert_eq!(aperture(0x28), Some("f4.0"));
+        assert_eq!(aperture(0x08), Some("f1.0"));
+        assert_eq!(aperture(0x3b), Some("f9.0"));
+        assert_eq!(aperture(0x3c), Some("f9.5"));
+        assert_eq!(aperture(0x3d), Some("f10"));
+        assert_eq!(aperture(0x50), Some("f22"));
+        assert_eq!(aperture(0xffff), Some("auto"));
+        assert_eq!(aperture(0x01), None);
     }
 
     #[test]
     fn shutter_speed_codes_read_as_the_camera_shows_them() {
-        assert_eq!(shutter_speed(0x10), "30\"");
-        assert_eq!(shutter_speed(0x14), "20\"");
-        assert_eq!(shutter_speed(0x3b), "0\"8");
-        assert_eq!(shutter_speed(0x70), "1/125");
-        assert_eq!(shutter_speed(0xa0), "1/8000");
-        assert_eq!(shutter_speed(0xa8), "1/16000");
-        assert_eq!(shutter_speed(0x04), "bulb");
-        assert_eq!(shutter_speed(0x00), "auto");
-        assert_eq!(shutter_speed(0x01), "0x01");
+        assert_eq!(shutter_speed(0x10), Some("30\""));
+        assert_eq!(shutter_speed(0x14), Some("20\""));
+        assert_eq!(shutter_speed(0x3b), Some("0\"8"));
+        assert_eq!(shutter_speed(0x70), Some("1/125"));
+        assert_eq!(shutter_speed(0xa0), Some("1/8000"));
+        assert_eq!(shutter_speed(0xa8), Some("1/16000"));
+        assert_eq!(shutter_speed(0x04), Some("bulb"));
+        assert_eq!(shutter_speed(0x00), Some("auto"));
+        assert_eq!(shutter_speed(0x01), None);
+        // What the R6 Mark III lists as the only "choice" when its mode sets
+        // the shutter (0x1500 in Av, 0x1c00 in P) or the aperture (0xf00 in Tv
+        // and P), 2026-10-29: not a speed or an f-number.
+        assert_eq!(shutter_speed(0x1500), None);
+        assert_eq!(shutter_speed(0x1c00), None);
+        assert_eq!(aperture(0xf00), None);
+    }
+
+    #[test]
+    fn shooting_modes_read_as_the_dial_shows_them() {
+        // Property 0xD105 as the R6 Mark III reported each dial position (2026-10-29).
+        assert_eq!(shooting_mode(0), Some("P"));
+        assert_eq!(shooting_mode(1), Some("Tv"));
+        assert_eq!(shooting_mode(2), Some("Av"));
+        assert_eq!(shooting_mode(3), Some("M"));
+        assert_eq!(shooting_mode(4), Some("B"));
+        assert_eq!(shooting_mode(0x99), None);
     }
 
     #[test]

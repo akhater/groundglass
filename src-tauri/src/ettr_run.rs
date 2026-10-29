@@ -80,6 +80,10 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         }
         let mut dials = Vec::new();
         for (setting, state) in &states {
+            // Set by the mode (the shutter in Av): the camera meters it again after every change, undoing it.
+            if state.choices.is_empty() {
+                return Ok(Outcome::Unavailable);
+            }
             if pinned.contains(setting) {
                 // A pinned setting on auto (Auto ISO) would undo every change.
                 if state.value == "auto" {
@@ -326,6 +330,10 @@ mod tests {
         let camera = scene("100", "f5.6", "1/500", -33);
         camera.values.borrow_mut()[2].2.clear();
         assert_eq!(run(&camera, &[Iso, Av]), Ok(Outcome::Unavailable));
+        // Pinned or not: in Av the camera meters the shutter again after each change, undoing it.
+        let camera = scene("100", "f5.6", "1/500", -33);
+        camera.values.borrow_mut()[2].2.clear();
+        assert_eq!(run(&camera, &[Av, Tv]), Ok(Outcome::Unavailable));
         assert_eq!(camera.sets.get(), 0);
     }
 

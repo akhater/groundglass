@@ -98,6 +98,8 @@ pub struct LiveDetails {
     pub histogram: Option<Vec<u32>>,
 }
 
+/// A setting's value and the values it can be set to now. No choices: the
+/// shooting mode sets it (the shutter in Av), and it shows what the camera chose.
 #[derive(Serialize)]
 pub struct SettingState {
     pub value: String,
@@ -171,6 +173,14 @@ impl Camera {
         match self {
             Self::Ccapi(camera) => camera.exposure_setting(setting),
             Self::Ptp(camera) => camera.exposure_setting(setting),
+        }
+    }
+
+    /// The shooting mode as the dial names it ("Av"), None where the camera doesn't say.
+    pub fn shooting_mode(&self) -> Result<Option<String>> {
+        match self {
+            Self::Ccapi(camera) => camera.shooting_mode(),
+            Self::Ptp(camera) => camera.shooting_mode(),
         }
     }
 

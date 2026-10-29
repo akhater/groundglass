@@ -35,8 +35,11 @@ export const autofocus = (held: boolean) => invoke<void>("autofocus", { held });
 
 /** Mirrors `ccapi::ExposureSetting`. */
 export type ExposureSetting = "iso" | "av" | "tv";
-/** `choices` is empty when the shooting mode sets the value (e.g. aperture in Tv). */
+/** `choices` is empty when the shooting mode sets the value (e.g. aperture in Tv): `value` is what the camera chose. */
 export type SettingState = { value: string; choices: string[] };
+
+/** The shooting mode as the dial names it ("Av"), null where the camera doesn't say. */
+export const shootingMode = () => invoke<string | null>("shooting_mode");
 
 export const exposureSetting = (setting: ExposureSetting) =>
   invoke<SettingState>("exposure_setting", { setting });

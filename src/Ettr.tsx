@@ -5,6 +5,7 @@
 // didn't follow (exposure simulation off).
 import { useState } from "react";
 import * as camera from "./camera";
+import { setByCamera } from "./Exposure";
 import { Icon } from "./icons";
 import { remember, remembered } from "./storage";
 
@@ -15,6 +16,7 @@ const MOST_PINNED = 2;
 const FIRST_PINNED: camera.ExposureSetting[] = ["av", "tv"];
 /** How long a flash shows. */
 const FLASH_MS = 1600;
+const NAMES: Record<camera.ExposureSetting, string> = { tv: "shutter", av: "aperture", iso: "ISO" };
 
 type States = Partial<Record<camera.ExposureSetting, camera.SettingState>>;
 
@@ -28,19 +30,25 @@ function rememberedPins(): camera.ExposureSetting[] {
   }
 }
 
-export function useEttr(live: boolean, states: States, refresh: () => Promise<void>) {
+export function useEttr(live: boolean, states: States, mode: string | null, refresh: () => Promise<void>) {
   const [pinned, setPinned] = useState(rememberedPins);
   const [running, setRunning] = useState(false);
   /** What flashes after a run: settings at the end of their range, or the button. */
   const [flash, setFlash] = useState<(camera.ExposureSetting | "button")[]>([]);
   const [error, setError] = useState("");
 
-  // As ettr_run.rs asks: the free settings settable and not on auto, none pinned on auto (Auto ISO).
-  const usable = (["tv", "av", "iso"] as const).every((key) => {
+  // As ettr_run.rs asks: every setting settable (the camera meters again what its mode sets,
+  // undoing each change), none pinned on auto (Auto ISO), the free ones not on auto.
+  const keys = ["tv", "av", "iso"] as const;
+  const usable = keys.every((key) => {
     const state = states[key];
-    if (!state || state.value === "auto") return false;
-    return pinned.includes(key) || state.choices.length > 0;
+    return !!state && state.value !== "auto" && state.choices.length > 0;
   });
+  const byCamera = keys.filter((key) => setByCamera(states[key])).map((key) => NAMES[key]);
+  /** Why ETTR can't run in this shooting mode, said on a tap. */
+  const blocked = byCamera.length
+    ? `ETTR needs manual exposure: the camera sets the ${byCamera.join(" and ")} in ${mode ?? "this mode"}`
+    : "";
 
   function pin(key: camera.ExposureSetting) {
     const next = pinned.includes(key) ? pinned.filter((k) => k !== key) : [...pinned, key];
@@ -77,17 +85,20 @@ export function useEttr(live: boolean, states: States, refresh: () => Promise<vo
     flash,
     error,
     run,
-    disabled: !live || !usable,
+    blocked: live ? blocked : "",
+    disabled: !live || (!usable && !blocked),
   };
 }
 
-export function EttrButton({ ettr }: { ettr: ReturnType<typeof useEttr> }) {
+/** `onBlocked` says why when the shooting mode keeps ETTR from running. */
+export function EttrButton({ ettr, onBlocked }: { ettr: ReturnType<typeof useEttr>; onBlocked: (why: string) => void }) {
   const className = `ettr${ettr.running ? " running" : ""}${ettr.flash.includes("button") ? " limit" : ""}`;
   return (
     <button
       className={className}
       disabled={ettr.disabled}
-      onClick={() => void ettr.run()}
+      aria-disabled={!!ettr.blocked}
+      onClick={() => (ettr.blocked ? onBlocked(ettr.blocked) : void ettr.run())}
       aria-label="Expose to the right"
     >
       <Icon name="ettr" />

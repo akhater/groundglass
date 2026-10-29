@@ -11,6 +11,8 @@
   --live: #4fe08a;
   --servo: #4aa8ff;
   --bad: #ff7a66;
+  /* Set by the camera in its shooting mode: apart from the gold of a pin the user set. */
+  --by-camera: #ff5c4d;
   --scrim: rgb(10 10 12 / 0.72);
   --raised: rgb(255 255 255 / 0.09);
   color-scheme: dark;
@@ -520,6 +522,10 @@ button:disabled {
   stroke-width: 2.4;
 }
 
+.setting.by-camera small .icon {
+  color: var(--by-camera);
+}
+
 .setting[aria-expanded="true"] small {
   color: rgb(255 190 61 / 0.7);
 }
@@ -578,7 +584,8 @@ button:disabled {
 }
 
 .af:disabled,
-.ettr:disabled {
+.ettr:disabled,
+.ettr[aria-disabled="true"] {
   opacity: 0.35;
 }
 
@@ -751,6 +758,26 @@ button:disabled {
   font-weight: 600;
   text-align: left;
   white-space: pre-line;
+  transform: translateX(-50%);
+}
+
+/* A one-line answer to a tap, where messages show; it goes by itself. */
+.note {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 3;
+  width: max-content;
+  max-width: calc(100% - 20px);
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
   transform: translateX(-50%);
 }
 
