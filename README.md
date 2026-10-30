@@ -3,7 +3,7 @@
 **Your looks and zebra on a Canon camera's live view.**
 
 Groundglass shows a Canon camera's live view on a phone or computer over
-Wi-Fi, through your own `.cube` LUTs, with zebra, while you shoot stills.
+Wi-Fi, through your own `.cube` or HaldCLUT PNG LUTs, with zebra, while you shoot stills.
 
 > **Status: early development.** Tested with the EOS R6 Mark III. Android and
 > Windows are the main targets; macOS and Linux builds are previews.
@@ -13,7 +13,7 @@ Wi-Fi, through your own `.cube` LUTs, with zebra, while you shoot stills.
 - Live view over Wi-Fi (Canon CCAPI), on your network or the camera's own
   access point.
 - Zebra from 70% to 100%.
-- Your own looks (`.cube` LUTs) on live view.
+- Your own looks (`.cube` or HaldCLUT PNG LUTs) on live view.
 - Shoot, AF-ON, ISO, aperture and shutter speed from the app.
 - Camera screen off while connected, to save battery.
 - `groundglass-cli` for live view without the window.

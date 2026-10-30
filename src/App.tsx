@@ -137,12 +137,12 @@ export default function App() {
           onPick={looks.choose}
           onClose={close}
           first={
-            <label className="tile add">
+            <label className="tile add" aria-label="Add a look">
               <Icon name="plus" />
-              <span>Add .cube</span>
               <input
                 type="file"
-                accept=".cube"
+                // Android's picker only offers file types it knows, and .cube isn't one: */* keeps them choosable there.
+                accept="*/*,.cube,.png"
                 multiple
                 hidden
                 onChange={(e) => {
