@@ -91,6 +91,11 @@ export const listLuts = () => invoke<string[]>("list_luts");
 export const saveLut = (name: string, text: string) => invoke<void>("save_lut", { name, text });
 export const readLut = (name: string) => invoke<string>("read_lut", { name });
 
+/** What GitHub answered about the latest release: its version if newer than this app, else null. Rejects if it isn't a release. */
+export const newerRelease = (answer: string) => invoke<string | null>("newer_release", { answer });
+/** Opens the latest release's page in the system browser. */
+export const openReleasePage = () => invoke<void>("open_release_page");
+
 /** The camera can't answer this instant (e.g. a photo is being taken). */
 export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";
 

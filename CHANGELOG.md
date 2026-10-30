@@ -4,6 +4,12 @@ Newest first.
 
 ## 26.44.5 - unreleased
 
+### Added
+
+- **New version notice:** when a newer release is published, its version shows
+  beside the title before Start and opens the release page. Checked at start
+  and every 6 hours, silently; nothing is downloaded or installed.
+
 ## 26.44.4 - 2026-10-29
 
 ### Added

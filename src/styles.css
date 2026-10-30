@@ -1185,6 +1185,33 @@ button:disabled {
   color: var(--accent);
 }
 
+.connect-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* The tap area reaches into the panel's margins: the title keeps its height. */
+.panel button.new-release {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  margin: -12px -8px -12px 0;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.new-release .icon {
+  width: 18px;
+  height: 18px;
+}
+
 .panel p {
   margin: 0;
   overflow-wrap: anywhere;
