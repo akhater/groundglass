@@ -1,6 +1,6 @@
-// Reads a 3D .cube LUT. Adapted from open-eos-control (Apache-2.0,
-// bridge/open_eos_bridge/static/lut.js at 089e71a3, parseCubeLut): same
-// directives, shortened. 1D/shaper LUTs are refused.
+// Reads and writes a 3D .cube LUT. The reader is adapted from open-eos-control
+// (Apache-2.0, bridge/open_eos_bridge/static/lut.js at 089e71a3, parseCubeLut):
+// same directives, shortened. 1D/shaper LUTs are refused.
 
 export type Cube = {
   name: string;
@@ -51,4 +51,13 @@ export function parseCube(text: string, fallbackName: string): Cube {
 
   if (!values || count !== (values as Float32Array).length) throw new Error("Incomplete LUT table");
   return { name, size, domainMin, domainMax, values };
+}
+
+/** The .cube text of a LUT. Four decimals are far finer than the screen's 1/255, and keep the file small. */
+export function formatCube({ size, domainMin, domainMax, values }: Cube): string {
+  const rows = [`LUT_3D_SIZE ${size}`, `DOMAIN_MIN ${domainMin.join(" ")}`, `DOMAIN_MAX ${domainMax.join(" ")}`];
+  for (let i = 0; i < values.length; i += 3) {
+    rows.push(`${values[i].toFixed(4)} ${values[i + 1].toFixed(4)} ${values[i + 2].toFixed(4)}`);
+  }
+  return `${rows.join("\n")}\n`;
 }

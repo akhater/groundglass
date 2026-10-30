@@ -754,12 +754,12 @@ button:disabled {
   color: var(--bad);
 }
 
-/* Messages: at the top of the picture, tap to hide. */
+/* Messages: at the top of the picture, tap to hide. Over any open panel, so a reason is never covered. */
 .errors {
   position: absolute;
   top: 10px;
   left: 50%;
-  z-index: 3;
+  z-index: 6;
   width: max-content;
   max-width: calc(100% - 20px);
   padding: 9px 14px;

@@ -1,11 +1,23 @@
 // Looks: the .cube files in the app's looks folder, the chosen one (parsed for
-// the frame loop) and adding new ones.
+// the frame loop) and adding new ones; a HaldCLUT PNG is kept as a .cube.
 import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
-import { parseCube, type Cube } from "./cube";
+import { formatCube, parseCube, type Cube } from "./cube";
+import { readHald } from "./hald";
+import { lookFormat } from "./lookFormat";
 import { remember, remembered } from "./storage";
 
 const LOOK_KEY = "groundglass.look";
+
+/** The name and .cube text a picked file is stored as; refuses a file that isn't a look. */
+async function asCubeFile(file: File) {
+  if (lookFormat(file.name) === "png") {
+    return { name: file.name.replace(/\.png$/i, ".cube"), text: formatCube(await readHald(file)) };
+  }
+  const text = await file.text();
+  parseCube(text, file.name);
+  return { name: file.name, text };
+}
 
 export function useLooks() {
   const [names, setNames] = useState<string[]>([]);
@@ -40,9 +52,8 @@ export function useLooks() {
     const failed: string[] = [];
     for (const file of Array.from(files ?? [])) {
       try {
-        const text = await file.text();
-        parseCube(text, file.name);
-        await camera.saveLut(file.name, text);
+        const { name, text } = await asCubeFile(file);
+        await camera.saveLut(name, text);
       } catch (e) {
         failed.push(`${file.name}: ${e instanceof Error ? e.message : e}`);
       }
