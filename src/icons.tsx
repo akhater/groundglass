@@ -23,6 +23,7 @@ const PATHS = {
   rotationLocked: "M20.5 12a8.5 8.5 0 1 1-2.5-6M20.5 3.5v4h-4M9.75 11.5V10a2.25 2.25 0 0 1 4.5 0v1.5M8.5 11.5h7v5h-7z",
   left: "M14.5 6 8.5 12l6 6",
   right: "M9.5 6l6 6-6 6",
+  newRelease: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 16.5v-9M8 11l4-3.5 4 3.5",
 };
 
 export type IconName = keyof typeof PATHS;

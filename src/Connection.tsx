@@ -2,7 +2,8 @@
 // the picture; while live it opens from the status badge at the top.
 import { useState } from "react";
 import type { Status } from "./liveView";
-import type { Battery } from "./camera";
+import { openReleasePage, type Battery } from "./camera";
+import { Icon } from "./icons";
 
 type Props = {
   running: boolean;
@@ -13,6 +14,8 @@ type Props = {
   cameraDisplayOn: boolean;
   onCameraDisplay: (on: boolean) => void;
   status: Status | null;
+  /** A newer published version, opening its release page. */
+  newRelease: string | null;
   onStart: () => void;
   onStop: () => void;
 };
@@ -51,7 +54,20 @@ export function Connection(props: Props) {
         props.onStart();
       }}
     >
-      <h1>Groundglass</h1>
+      <div className="connect-title">
+        <h1>Groundglass</h1>
+        {props.newRelease && (
+          <button
+            type="button"
+            className="new-release"
+            aria-label={`Groundglass ${props.newRelease} is out`}
+            onClick={() => void openReleasePage()}
+          >
+            <Icon name="newRelease" />
+            {props.newRelease}
+          </button>
+        )}
+      </div>
       <div className="address-field">
         <input
           value={props.address}

@@ -22,6 +22,7 @@ import { Tiles } from "./Tiles";
 import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
+import { useNewRelease } from "./useNewRelease";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
 
@@ -95,6 +96,7 @@ export default function App() {
   const turns = details?.turns ?? 0;
   turnsRef.current = turns;
   const battery = useBattery(live);
+  const newRelease = useNewRelease();
   const tapFocus = useTapFocus(canvas);
   /** Large screens only, where the bands sit over the picture: a band tucked away. */
   const [folded, setFolded] = useState({ assists: false, camera: false });
@@ -305,6 +307,7 @@ export default function App() {
             cameraDisplayOn={cameraDisplayOn}
             onCameraDisplay={setCameraDisplayOn}
             status={status}
+            newRelease={newRelease}
             onStart={() => {
               const used = address.trim();
               setAddress(used);

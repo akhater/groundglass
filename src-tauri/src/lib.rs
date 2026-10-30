@@ -7,6 +7,7 @@ mod eos;
 mod luts;
 mod orientation;
 pub mod ptpip;
+mod updates;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -16,6 +17,7 @@ use ccapi::ExposureSetting;
 use ettr_run::Outcome;
 use orientation::Upright;
 use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
+use tauri_plugin_opener::OpenerExt;
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
 /// without holding the lock, so a slow frame never blocks a stop.
@@ -149,9 +151,22 @@ fn read_lut(name: String, app: AppHandle) -> Result<String, String> {
     luts::read(&luts_folder(&app)?, &name).map_err(|e| e.to_string())
 }
 
+/// The version GitHub's `answer` names if it is newer than this app.
+#[tauri::command(async)]
+fn newer_release(answer: String) -> Result<Option<String>, String> {
+    updates::newer_version(&answer, updates::CURRENT).map_err(|e| e.to_string())
+}
+
+/// In the system browser: a link in the page would replace the app on Android.
+#[tauri::command(async)]
+fn open_release_page(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(updates::RELEASES_PAGE, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(Connection::default())
         .invoke_handler(tauri::generate_handler![
             connect,
@@ -171,7 +186,9 @@ pub fn run() {
             battery,
             list_luts,
             save_lut,
-            read_lut
+            read_lut,
+            newer_release,
+            open_release_page
         ])
         .build(tauri::generate_context!())
         .expect("error while building Groundglass")
