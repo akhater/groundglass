@@ -4,15 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { formatCube, parseCube, type Cube } from "./cube";
 import { readHald } from "./hald";
+import { lookFormat } from "./lookFormat";
 import { remember, remembered } from "./storage";
 
 const LOOK_KEY = "groundglass.look";
-const PNG_NAME = /\.png$/i;
 
 /** The name and .cube text a picked file is stored as; refuses a file that isn't a look. */
 async function asCubeFile(file: File) {
-  if (PNG_NAME.test(file.name)) {
-    return { name: file.name.replace(PNG_NAME, ".cube"), text: formatCube(await readHald(file)) };
+  if (lookFormat(file.name) === "png") {
+    return { name: file.name.replace(/\.png$/i, ".cube"), text: formatCube(await readHald(file)) };
   }
   const text = await file.text();
   parseCube(text, file.name);

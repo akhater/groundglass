@@ -12,8 +12,8 @@ Newest first.
 - **PNG looks:** a look can be added from a HaldCLUT PNG as well as a `.cube`,
   and gives the same colours as the same look in `.cube`. Large ones (level 12,
   1728x1728) are kept at 65 points per colour so they stay light on a phone;
-  nearly every colour stays within a level or two of 255. A PNG that isn't a
-  HaldCLUT is refused with the reason.
+  almost all colours stay within one or two steps out of 255. A PNG that isn't
+  a HaldCLUT is refused with the reason.
 
 ## 26.44.4 - 2026-10-29
 
