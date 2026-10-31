@@ -49,6 +49,12 @@ fn connect(address: String, pairing: Channel<bool>, connection: State<Connection
     Ok(info)
 }
 
+/// Whether `bluetooth_connect` can start now.
+#[tauri::command(async)]
+fn bluetooth_ready(link: State<CameraLink<Wry>>) -> Result<bool, String> {
+    link.ready()
+}
+
 /// Wakes the paired camera over Bluetooth and joins its Wi-Fi (Android only).
 #[tauri::command(async)]
 fn bluetooth_connect(link: State<CameraLink<Wry>>) -> Result<Link, String> {
@@ -192,6 +198,7 @@ pub fn run() {
         .manage(Connection::default())
         .invoke_handler(tauri::generate_handler![
             connect,
+            bluetooth_ready,
             bluetooth_connect,
             bluetooth_release,
             camera_survey,

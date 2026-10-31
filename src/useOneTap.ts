@@ -1,7 +1,7 @@
 // One-tap connect: Bluetooth wakes the camera and joins its Wi-Fi, then one
 // attempt over the normal path. Only live view's own loop retries, and that
 // starts only once this has worked: the camera mustn't get PTP/IP attempts in a row.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { liveViewStopped } from "./liveView";
 import { oneTapReport, type OneTapReport } from "./oneTapReport";
@@ -33,7 +33,22 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
   const [working, setWorking] = useState(false);
   const [hint, setHint] = useState("");
   const [report, setReport] = useState<OneTapReport | null>(null);
+  /** Off while Bluetooth or Wi-Fi is off: the button dims, and a tap says what to turn on. */
+  const [ready, setReady] = useState(true);
   const linked = useRef(false);
+
+  useEffect(() => {
+    if (!camera.canConnectOverBluetooth) return;
+    const check = () => void camera.bluetoothReady().then(setReady, () => setReady(false));
+    check();
+    // Coming back from the settings, or from the quick settings over the app.
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
 
   const release = () => {
     if (!linked.current) return Promise.resolve();
@@ -72,5 +87,5 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     void liveViewStopped().then(release);
   };
 
-  return { working, hint, report, start, stop, hideReport: () => setReport(null) };
+  return { ready, working, hint, report, start, stop, hideReport: () => setReport(null) };
 }

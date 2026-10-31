@@ -23,10 +23,22 @@ pub struct Link {
 struct NoArguments {}
 
 #[cfg(target_os = "android")]
+#[derive(Deserialize)]
+struct Readiness {
+    ready: bool,
+}
+
+#[cfg(target_os = "android")]
 pub struct CameraLink<R: Runtime>(tauri::plugin::PluginHandle<R>);
 
 #[cfg(target_os = "android")]
 impl<R: Runtime> CameraLink<R> {
+    /// Whether a connect can start now: Bluetooth and Wi-Fi are on.
+    pub fn ready(&self) -> Result<bool, String> {
+        let answer = self.0.run_mobile_plugin::<Readiness>("ready", NoArguments {});
+        answer.map(|readiness| readiness.ready).map_err(|e| e.to_string())
+    }
+
     /// Blocks until the phone has joined the camera's Wi-Fi or given up.
     pub fn connect(&self) -> Result<Link, String> {
         self.0.run_mobile_plugin("connect", NoArguments {}).map_err(|e| e.to_string())
@@ -43,6 +55,10 @@ pub struct CameraLink<R: Runtime>(std::marker::PhantomData<fn() -> R>);
 
 #[cfg(not(target_os = "android"))]
 impl<R: Runtime> CameraLink<R> {
+    pub fn ready(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+
     pub fn connect(&self) -> Result<Link, String> {
         Err("Bluetooth connect is on Android only.".into())
     }

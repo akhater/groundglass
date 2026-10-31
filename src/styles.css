@@ -1255,7 +1255,9 @@ button:disabled {
 
 .start-row {
   display: grid;
-  grid-template-columns: 1fr 48px;
+  grid-auto-flow: column;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-columns: 48px;
   gap: 8px;
 }
 
@@ -1265,7 +1267,8 @@ button:disabled {
   color: var(--accent);
 }
 
-.start-row .secondary:disabled {
+.start-row .secondary:disabled,
+.start-row .secondary[aria-disabled="true"] {
   opacity: 0.35;
 }
 

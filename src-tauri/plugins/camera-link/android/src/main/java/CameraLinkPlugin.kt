@@ -25,6 +25,12 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     /** Held while connected: the recordings keep Bluetooth up during live view. */
     private var camera: CameraGatt? = null
 
+    /** Whether a tap can start now: the screen dims the button when it can't. */
+    @Command
+    fun ready(invoke: Invoke) {
+        invoke.resolve(JSObject().put("ready", blocker() == null))
+    }
+
     @Command
     fun connect(invoke: Invoke) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || getPermissionState(BLUETOOTH) == PermissionState.GRANTED) {
@@ -68,7 +74,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     /** Marks each step in [report] as it passes, so a failure shows how far it got. */
     private fun link(report: JSObject) {
         close()
-        if (!wifi.isOn) throw Stop("Turn Wi-Fi on, then tap again.")
+        blocker()?.let { throw Stop(it) }
         val gatt = CameraGatt.open(activity)
         camera = gatt
         report.put("woke", true)
@@ -78,6 +84,10 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         report.put("joined", true)
         report.put("address", access.cameraAddress)
     }
+
+    /** What to do before a connect can start; null when it can. */
+    private fun blocker(): String? =
+        if (CameraGatt.isBluetoothOn(activity)) wifi.blocker else "Turn Bluetooth on, then tap again."
 
     private fun close() {
         wifi.release()

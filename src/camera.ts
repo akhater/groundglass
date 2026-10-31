@@ -19,8 +19,10 @@ export function connect(address: string, onPairing: () => void) {
   return invoke<CameraInfo>("connect", { address, pairing });
 }
 
-/** Only the Android app can wake the camera over Bluetooth. */
+/** Only the Android app can wake the camera over Bluetooth: elsewhere the button isn't there at all. */
 export const canConnectOverBluetooth = navigator.userAgent.includes("Android");
+/** Whether a Bluetooth connect can start now: Bluetooth and Wi-Fi are on. */
+export const bluetoothReady = () => invoke<boolean>("bluetooth_ready");
 
 /** Mirrors `tauri_plugin_camera_link::Link`. `failure` says what to do, in one sentence. */
 export type BluetoothLink = {

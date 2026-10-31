@@ -17,8 +17,15 @@ type Props = {
   status: Status | null;
   /** A newer published version, opening its release page. */
   newRelease: string | null;
-  /** One-tap connect: working, what to do on the camera meanwhile, and how the last one went. */
-  oneTap: { working: boolean; hint: string; report: OneTapReport | null; start: () => void; hideReport: () => void };
+  /** One-tap connect: can it start, working, what to do on the camera meanwhile, and how the last one went. */
+  oneTap: {
+    ready: boolean;
+    working: boolean;
+    hint: string;
+    report: OneTapReport | null;
+    start: () => void;
+    hideReport: () => void;
+  };
   onStart: () => void;
   onStop: () => void;
 };
@@ -122,16 +129,20 @@ export function Connection(props: Props) {
         <button type="submit" className="primary" disabled={!props.address.trim() || props.oneTap.working}>
           Start
         </button>
-        <button
-          type="button"
-          className="secondary"
-          aria-label="Connect over Bluetooth"
-          aria-busy={props.oneTap.working}
-          disabled={!canConnectOverBluetooth || props.oneTap.working}
-          onClick={props.oneTap.start}
-        >
-          <Icon name="bluetooth" />
-        </button>
+        {/* Dimmed, not disabled, while Bluetooth or Wi-Fi is off: a tap says what to turn on. */}
+        {canConnectOverBluetooth && (
+          <button
+            type="button"
+            className="secondary"
+            aria-label="Connect over Bluetooth"
+            aria-busy={props.oneTap.working}
+            aria-disabled={!props.oneTap.ready}
+            disabled={props.oneTap.working}
+            onClick={props.oneTap.start}
+          >
+            <Icon name="bluetooth" />
+          </button>
+        )}
       </div>
       {props.oneTap.working && <p role="status">{props.oneTap.hint || "Connecting…"}</p>}
       {screenToggle}

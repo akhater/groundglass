@@ -132,11 +132,14 @@ class CameraGatt private constructor() {
     }
 
     companion object {
+        private fun adapter(context: Context) = context.getSystemService(BluetoothManager::class.java).adapter
+
+        /** Needs no permission on any version the app runs on: the manifest covers the older ones. */
+        fun isBluetoothOn(context: Context) = adapter(context)?.isEnabled == true
+
         /** Connects to the camera the phone is paired with, waking it if needed. */
         fun open(context: Context): CameraGatt {
-            val adapter = context.getSystemService(BluetoothManager::class.java).adapter
-            if (adapter == null || !adapter.isEnabled) throw Stop("Turn Bluetooth on, then tap again.")
-            val device = adapter.bondedDevices.firstOrNull { isCamera(it) }
+            val device = adapter(context)?.bondedDevices?.firstOrNull { isCamera(it) }
                 ?: throw Stop("No paired camera: pair it once with Canon's Camera Connect, then tap again.")
             repeat(CONNECT_ATTEMPTS) {
                 val camera = CameraGatt()
