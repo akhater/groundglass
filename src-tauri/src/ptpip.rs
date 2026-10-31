@@ -13,11 +13,12 @@ const PORT: u16 = 15740;
 /// 1.0, as Canon's EOS Utility sends it to the R6 Mark III (recorded 2026-10-29).
 const PROTOCOL_VERSION: u32 = 0x0001_0000;
 /// The camera pairs with this GUID and name, and reconnects without asking as
-/// long as both stay the same. A random UUID, generated once, last byte first
-/// as Canon's app sends its own over Bluetooth. First-time pairing gives the
-/// camera the same two over Bluetooth.
-pub const GUID: [u8; 16] = [
-    0x61, 0xe3, 0x3a, 0xa3, 0xcb, 0xe2, 0x64, 0xb9, 0xee, 0x4b, 0x48, 0xf1, 0x78, 0x31, 0xca, 0xd5,
+/// long as both stay the same. A random UUID, generated once, first byte first.
+/// First-time pairing gives the camera the same two over Bluetooth, the GUID
+/// last byte first (`bluetooth_id`): in smartphone mode the R6 Mark III refused
+/// Init with the same bytes in both, and accepted this (2026-11-01).
+const GUID: [u8; 16] = [
+    0xd5, 0xca, 0x31, 0x78, 0xf1, 0x48, 0x4b, 0xee, 0xb9, 0x64, 0xe2, 0xcb, 0xa3, 0x3a, 0xe3, 0x61,
 ];
 pub const NAME: &str = "Groundglass";
 /// Packets larger than this are refused (live view frames are well under).
@@ -133,25 +134,11 @@ impl Session {
     /// Pairs and opens a session. The first time, the camera asks on its screen
     /// to confirm the pairing: up to `pairing_wait` is left for that.
     pub fn open(host: &str, pairing_wait: Duration) -> Result<Self, Error> {
-        Self::open_as(host, pairing_wait, &GUID)
-    }
-
-    /// As `open`, for finding out which GUID order the camera takes in
-    /// smartphone mode: reversed from what Bluetooth writes. `report` hears how
-    /// it went. One try: within 6 s of a refusal the camera answers nothing on
-    /// its Wi-Fi (R6 Mark III, 2026-10-31), so a second Init can't reach it.
-    pub fn open_reversed(host: &str, pairing_wait: Duration, report: impl FnOnce(String)) -> Result<Self, Error> {
-        let result = Self::open_as(host, pairing_wait, &reversed_guid());
-        report(format!("GUID reversed: {}", outcome(&result)));
-        result
-    }
-
-    fn open_as(host: &str, pairing_wait: Duration, guid: &[u8; 16]) -> Result<Self, Error> {
         let address = socket_address(host, PORT)?;
         discover(address)?;
         let mut command = connect(address)?;
         command.set_read_timeout(Some(pairing_wait))?;
-        send(&mut command, packet::INIT_COMMAND_REQUEST, &init_command_request(guid, NAME))?;
+        send(&mut command, packet::INIT_COMMAND_REQUEST, &init_command_request(&GUID, NAME))?;
         let (kind, ack) = receive(&mut command)?;
         match kind {
             packet::INIT_COMMAND_ACK if ack.len() >= 4 => {}
@@ -452,6 +439,14 @@ fn receive(stream: &mut TcpStream) -> Result<(u32, Vec<u8>), Error> {
     Ok((kind, payload))
 }
 
+/// The GUID as first-time pairing writes it over Bluetooth, last byte first, as
+/// Canon's app writes its own id.
+pub fn bluetooth_id() -> [u8; 16] {
+    let mut id = GUID;
+    id.reverse();
+    id
+}
+
 /// Init_Command_Request payload: who we are, so the camera can pair with us.
 fn init_command_request(guid: &[u8; 16], name: &str) -> Vec<u8> {
     let mut out = guid.to_vec();
@@ -460,23 +455,6 @@ fn init_command_request(guid: &[u8; 16], name: &str) -> Vec<u8> {
     }
     out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
     out
-}
-
-/// The GUID first byte first, as the one published Init carries a UUID.
-/// Bluetooth writes it last byte first, as Canon's app writes its id.
-fn reversed_guid() -> [u8; 16] {
-    let mut reversed = GUID;
-    reversed.reverse();
-    reversed
-}
-
-/// How an Init went, in a few words for the report.
-fn outcome<T>(result: &Result<T, Error>) -> String {
-    match result {
-        Ok(_) => "accepted".to_string(),
-        Err(Error::PairingRefused(reason)) => format!("refused 0x{reason:x}"),
-        Err(error) => error.to_string(),
-    }
 }
 
 /// Init_Fail payload: the reason, a u32; 0 if the camera sends none.
@@ -803,26 +781,20 @@ mod tests {
     }
 
     #[test]
-    fn the_guid_has_the_shape_of_the_id_canon_sends_over_bluetooth() {
-        // A version 4 UUID, last byte first: the version in byte 9, the variant in byte 7.
-        assert_eq!(GUID[9] >> 4, 4);
-        assert_eq!(GUID[7] >> 6, 2);
+    fn init_sends_a_uuid_first_byte_first() {
+        // A version 4 UUID: the version in byte 6, the variant in byte 8.
+        assert_eq!(GUID[6] >> 4, 4);
+        assert_eq!(GUID[8] >> 6, 2);
     }
 
     #[test]
-    fn the_reversed_guid_is_a_uuid_first_byte_first() {
-        let reversed = reversed_guid();
-        // As the Init published on julianschroden.com: the version in byte 6, the variant in byte 8.
-        assert_eq!(reversed[6] >> 4, 4);
-        assert_eq!(reversed[8] >> 6, 2);
-        assert_eq!(reversed[0], GUID[15]);
-    }
-
-    #[test]
-    fn an_init_is_reported_in_the_camera_s_terms() {
-        assert_eq!(outcome(&Ok(())), "accepted");
-        assert_eq!(outcome::<()>(&Err(Error::PairingRefused(1))), "refused 0x1");
-        assert_eq!(outcome::<()>(&Err(Error::Connection("connection timed out".into()))), "connection timed out");
+    fn bluetooth_writes_the_guid_last_byte_first_as_canon_s_app_writes_its_id() {
+        // The R6 Mark III refuses Init when the two carry the same bytes (2026-10-31).
+        let id = bluetooth_id();
+        assert_eq!(id[0], GUID[15]);
+        assert_eq!(id[15], GUID[0]);
+        assert_eq!(id[9] >> 4, 4);
+        assert_eq!(id[7] >> 6, 2);
     }
 
     #[test]

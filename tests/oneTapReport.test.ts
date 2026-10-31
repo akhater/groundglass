@@ -61,18 +61,6 @@ test("a camera that doesn't know this client says to pair, not to restart it", (
   assert.doesNotMatch(report.message!, /off and on/i);
 });
 
-test("the GUID tried shows after the registration, on a refusal and once live", () => {
-  const registration = "id ok, name ok, mode ok";
-  const survey = { services: [], ports: [15740] };
-  const attempts = ["GUID reversed: refused 0x1"];
-  const refused = oneTapReport({ ...joined, registration }, { protocol: "PTP/IP", refused: 1, live: false, attempts, survey });
-  assert.equal(refused.detail, `${registration} · GUID reversed: refused 0x1 · ports 15740`);
-
-  const live = oneTapReport(joined, { protocol: "PTP/IP", live: true, attempts: ["GUID reversed: accepted"] });
-  assert.equal(live.detail, "GUID reversed: accepted");
-  assert.equal(live.message, null);
-});
-
 test("how the Bluetooth registration went leads the detail, even when Wi-Fi never started", () => {
   const registration = "id ok, name ok, mode refused";
   assert.equal(oneTapReport({ ...nothing, registration, failure: "Tap again." }).detail, registration);

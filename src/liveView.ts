@@ -12,9 +12,12 @@ export type Status =
 export type LiveViewOptions = {
   canvas: HTMLCanvasElement;
   address: string;
-  cameraDisplayOn: boolean;
+  /** Read on every frame: a change restarts live view on the open session, so no new Init. */
+  cameraDisplayOn: () => boolean;
   /** A session one-tap connect already opened, taken once: reopening one at once can wedge the camera. */
   connected: () => camera.CameraInfo | null;
+  /** True when one-tap connect takes over from here: its camera's Wi-Fi may be off, and a refused Init ends it. */
+  resume: () => boolean;
   /** Read on every frame, so changing it needs no restart. Null = zebra off. */
   zebraPercent: () => number | null;
   /** Read on every frame too. Null = the camera's picture as it is. */
@@ -48,13 +51,14 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
 /** Resolves once the last run has stopped the camera. */
 export const liveViewStopped = () => previousRun;
 
-async function loop({ canvas, address, cameraDisplayOn, connected, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
+async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let info = connected();
   while (!signal.aborted) {
     try {
       onStatus({ state: "connecting" });
       if (!info) {
+        if (resume()) break;
         let hint = 0;
         let done = false;
         const showHint = () => onStatus({ state: "connecting", hint: "First time? Press OK on the camera to pair." });
@@ -67,10 +71,11 @@ async function loop({ canvas, address, cameraDisplayOn, connected, zebraPercent,
           clearTimeout(hint);
         }
       }
-      await camera.startLiveView(cameraDisplayOn);
+      const displayOn = cameraDisplayOn();
+      await camera.startLiveView(displayOn);
       let frames = 0;
       let since = performance.now();
-      while (!signal.aborted) {
+      while (!signal.aborted && cameraDisplayOn() === displayOn) {
         let jpeg: ArrayBuffer;
         try {
           jpeg = await camera.frame();
@@ -98,6 +103,7 @@ async function loop({ canvas, address, cameraDisplayOn, connected, zebraPercent,
       info = null;
       // No picture while the camera is away: an old frame would pass for live.
       renderer.clear();
+      if (resume()) break;
       onStatus({ state: "lost", message: camera.describe(error) });
       await sleep(RETRY_MS, signal);
     }

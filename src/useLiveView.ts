@@ -10,10 +10,12 @@ type Options = {
   canvas: RefObject<HTMLCanvasElement | null>;
   running: boolean;
   address: string;
-  cameraDisplayOn: boolean;
   /** A session already open, used by the next run and cleared. */
   connected: RefObject<camera.CameraInfo | null>;
+  /** True when one-tap connect takes over from a run that has no session. */
+  resume: RefObject<() => boolean>;
   /** Read on every frame, so changing them needs no restart. */
+  cameraDisplayOn: RefObject<boolean>;
   zebraPercent: RefObject<number | null>;
   look: RefObject<Cube | null>;
   peaking: RefObject<Peaking | null>;
@@ -22,7 +24,7 @@ type Options = {
 };
 
 /** The live view's status; null while stopped. */
-export function useLiveView({ canvas, running, address, cameraDisplayOn, connected, zebraPercent, look, peaking, zoom, turns }: Options) {
+export function useLiveView({ canvas, running, address, connected, resume, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns }: Options) {
   const [visible, setVisible] = useState(!document.hidden);
   const [status, setStatus] = useState<Status | null>(null);
 
@@ -39,12 +41,13 @@ export function useLiveView({ canvas, running, address, cameraDisplayOn, connect
     void runLiveView({
       canvas: canvas.current,
       address,
-      cameraDisplayOn,
+      cameraDisplayOn: () => cameraDisplayOn.current,
       connected: () => {
         const info = connected.current;
         connected.current = null;
         return info;
       },
+      resume: () => resume.current(),
       zebraPercent: () => zebraPercent.current,
       look: () => look.current,
       peaking: () => peaking.current,
@@ -54,7 +57,7 @@ export function useLiveView({ canvas, running, address, cameraDisplayOn, connect
       signal: abort.signal,
     });
     return () => abort.abort();
-  }, [canvas, running, visible, address, cameraDisplayOn, connected, zebraPercent, look, peaking, zoom, turns]);
+  }, [canvas, running, visible, address, connected, resume, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns]);
 
   return running ? status : null;
 }

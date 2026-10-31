@@ -57,6 +57,8 @@ export default function App() {
   const [address, setAddress] = useState(() => recent[0] ?? "");
   // On by default: with the camera's screen off, its own controls are locked too.
   const [cameraDisplayOn, setCameraDisplayOn] = useState(true);
+  const cameraDisplay = useRef(cameraDisplayOn);
+  cameraDisplay.current = cameraDisplayOn;
   const [running, setRunning] = useState(false);
   const [zebraOn, setZebraOn] = useState(true);
   const [zebraPercent, setZebraPercent] = useState(98);
@@ -83,7 +85,13 @@ export default function App() {
     setRunning(true);
     setNote(`Connected over ${info.protocol}`);
   });
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, connected, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
+  const resume = useRef<() => boolean>(() => false);
+  resume.current = () => {
+    if (!oneTap.resume()) return false;
+    setRunning(false); // it goes live again through onLive, or reports what to do
+    return true;
+  };
+  const status = useLiveView({ canvas, running, address, connected, resume, cameraDisplayOn: cameraDisplay, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);

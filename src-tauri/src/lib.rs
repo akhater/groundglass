@@ -39,26 +39,12 @@ impl Connection {
 
 #[tauri::command(async)]
 /// `pairing` hears once when the camera is in EOS Utility mode, so the screen can say to press OK.
-/// With `reversed_guid`, PTP/IP sends the GUID reversed and `attempt` hears how it went.
-fn connect(
-    address: String,
-    pairing: Channel<bool>,
-    reversed_guid: bool,
-    attempt: Channel<String>,
-    connection: State<Connection>,
-) -> Result<CameraInfo, CameraError> {
+fn connect(address: String, pairing: Channel<bool>, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
     // Let go of the last camera first: over PTP the camera takes one session at a time.
     drop(connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
-    let on_attempt = |outcome: String| {
-        let _ = attempt.send(outcome);
-    };
-    let (camera, info) = Camera::connect(
-        &address,
-        || {
-            let _ = pairing.send(true);
-        },
-        reversed_guid.then_some(on_attempt),
-    )?;
+    let (camera, info) = Camera::connect(&address, || {
+        let _ = pairing.send(true);
+    })?;
     *connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(camera));
     Ok(info)
 }
@@ -72,7 +58,7 @@ fn bluetooth_ready(link: State<CameraLink<Wry>>) -> Result<bool, String> {
 /// Wakes the paired camera over Bluetooth and joins its Wi-Fi (Android only).
 #[tauri::command(async)]
 fn bluetooth_connect(link: State<CameraLink<Wry>>) -> Result<Link, String> {
-    link.connect(&ptpip::GUID, ptpip::NAME)
+    link.connect(&ptpip::bluetooth_id(), ptpip::NAME)
 }
 
 /// Lets go of the camera's Wi-Fi and Bluetooth, once live view has stopped.

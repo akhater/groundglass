@@ -18,8 +18,10 @@ Newest first.
   pairs with a camera on its pairing screen the first time. After that it wakes
   the camera, starts its Wi-Fi and joins it for Groundglass alone, so the phone
   stays on mobile data. Each step shows as it went, and which protocol answered.
-  Groundglass has a new id for this: EOS Utility mode asks for OK on the camera
-  once more.
+  Bluetooth only sets this up: the picture runs over Wi-Fi. If the session is
+  lost, or Groundglass is hidden and comes back, it reconnects the same way.
+- **Keep the camera's screen on** now changes during live view without
+  reconnecting.
 
 ## 26.44.4 - 2026-10-29
 

@@ -40,7 +40,7 @@ private const val NO_WIFI = "The camera didn't start its Wi-Fi: close Canon's ap
 
 class WifiAccess(val name: String, val password: String, val cameraAddress: String)
 
-/** Who will log in over PTP/IP: the id and name its Init sends. */
+/** Who will log in over PTP/IP: its id as Bluetooth writes it, and the name its Init sends. */
 class Client(val id: ByteArray, val name: String)
 
 /**

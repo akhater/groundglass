@@ -15,25 +15,22 @@ function rawError(error: unknown): string {
 
 async function reach(address: string, cameraDisplayOn: boolean, link: camera.BluetoothLink, onPairing: () => void) {
   let info: camera.CameraInfo;
-  const attempts: string[] = [];
   try {
-    info = await camera.connect(address, onPairing, (attempt) => attempts.push(attempt));
+    info = await camera.connect(address, onPairing);
   } catch (error) {
     const survey = await camera.cameraSurvey(address);
     // Only PTP/IP can refuse a pairing, and a refusal is an answer.
     const refused = camera.refusalReason(error) ?? undefined;
     const protocol = refused === undefined ? undefined : "PTP/IP";
-    // The last attempt already says what `error` would.
-    const said = attempts.length > 0 ? undefined : rawError(error);
-    return { info: null, report: oneTapReport(link, { protocol, refused, live: false, error: said, attempts, survey }) };
+    return { info: null, report: oneTapReport(link, { protocol, refused, live: false, error: rawError(error), survey }) };
   }
   try {
     await camera.startLiveView(cameraDisplayOn);
   } catch (error) {
     await camera.stopLiveView().catch(() => {}); // ends the PTP session
-    return { info: null, report: oneTapReport(link, { protocol: info.protocol, live: false, error: rawError(error), attempts }) };
+    return { info: null, report: oneTapReport(link, { protocol: info.protocol, live: false, error: rawError(error) }) };
   }
-  return { info, report: oneTapReport(link, { protocol: info.protocol, live: true, attempts }) };
+  return { info, report: oneTapReport(link, { protocol: info.protocol, live: true }) };
 }
 
 /** `onLive` runs with the session already open and live view started. */
@@ -68,7 +65,9 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     setWorking(true);
     setHint("");
     setReport(null);
+    linked.current = false;
     try {
+      await liveViewStopped(); // a lost or hidden session may still be closing
       const link = await camera.bluetoothConnect();
       if (!link.address) {
         setReport(oneTapReport(link));
@@ -95,5 +94,16 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     void liveViewStopped().then(release);
   };
 
-  return { ready, working, hint, report, start, stop, hideReport: () => setReport(null) };
+  /**
+   * A one-tap session lost, or the app back from hiding: the whole tap again,
+   * so the camera's Wi-Fi starts and the phone joins it anew, then one Init.
+   * If that fails the report says what to do. False if this isn't such a session.
+   */
+  const resume = () => {
+    if (!linked.current) return false;
+    void start();
+    return true;
+  };
+
+  return { ready, working, hint, report, start, stop, resume, hideReport: () => setReport(null) };
 }

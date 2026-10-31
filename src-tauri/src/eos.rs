@@ -49,13 +49,8 @@ struct Link {
 
 impl Camera {
     /// Pairs (the first time, the camera asks to confirm on its screen) and opens a session.
-    /// With `on_attempt`, sends the GUID reversed and reports how it went.
-    pub fn connect(host: &str, on_attempt: Option<impl FnOnce(String)>) -> Result<(Self, CameraInfo)> {
-        let session = match on_attempt {
-            Some(report) => Session::open_reversed(host, PAIRING_WAIT, report),
-            None => Session::open(host, PAIRING_WAIT),
-        };
-        let mut session = session.map_err(camera_error)?;
+    pub fn connect(host: &str) -> Result<(Self, CameraInfo)> {
+        let mut session = Session::open(host, PAIRING_WAIT).map_err(camera_error)?;
         session.set_timeout(ANSWER_WAIT).map_err(camera_error)?;
         let device = session.device_info().map_err(camera_error)?;
         // The R6 Mark III magnifies and previews depth of field over PTP.

@@ -14,7 +14,7 @@ pub struct Link {
     pub wifi_started: bool,
     pub joined: bool,
     pub address: Option<String>,
-    /// How the camera took the app's id and name, write by write, or that the phone was already paired.
+    /// How the camera took the app's id and name, write by write.
     pub registration: Option<String>,
     pub failure: Option<String>,
 }
@@ -49,8 +49,9 @@ impl<R: Runtime> CameraLink<R> {
         answer.map(|readiness| readiness.ready).map_err(|e| e.to_string())
     }
 
-    /// Blocks until the phone has joined the camera's Wi-Fi or given up. The
-    /// camera learns `client_id` and `client_name`: its PTP/IP Init must use the same.
+    /// Blocks until the phone has joined the camera's Wi-Fi or given up. At a
+    /// first pairing the camera learns `client_id` and `client_name`, who its
+    /// PTP/IP Init will come from.
     pub fn connect(&self, client_id: &[u8; 16], client_name: &str) -> Result<Link, String> {
         let arguments = ConnectArguments { client_id, client_name };
         self.0.run_mobile_plugin("connect", arguments).map_err(|e| e.to_string())
