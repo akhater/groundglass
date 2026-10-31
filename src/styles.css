@@ -1253,6 +1253,62 @@ button:disabled {
   background: transparent;
 }
 
+.start-row {
+  display: grid;
+  grid-template-columns: 1fr 48px;
+  gap: 8px;
+}
+
+.start-row .secondary {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+
+.start-row .secondary:disabled {
+  opacity: 0.35;
+}
+
+/* One-tap connect's steps: a tick done, a cross failed, dim where it never got. */
+.panel button.one-tap {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 400;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.one-tap-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.one-tap-steps .done::before {
+  content: "✓ ";
+  color: var(--accent);
+}
+
+.one-tap-steps .failed::before {
+  content: "✕ ";
+  color: #ff7a66;
+}
+
+.one-tap-steps .skipped {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.one-tap .detail {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .toggle {
   display: flex;
   align-items: center;

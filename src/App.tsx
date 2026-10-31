@@ -22,6 +22,7 @@ import { Tiles } from "./Tiles";
 import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
+import { useOneTap } from "./useOneTap";
 import { useNewRelease } from "./useNewRelease";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
@@ -74,7 +75,15 @@ export default function App() {
   const zoom = useRef<camera.Zoom>(1);
   /** Quarter turns clockwise that show the picture upright: portrait shooting, from the camera's roll. */
   const turnsRef = useRef(0);
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
+  /** The session one-tap connect opened, for live view to carry on from. */
+  const connected = useRef<camera.CameraInfo | null>(null);
+  const oneTap = useOneTap(cameraDisplayOn, (cameraAddress, info) => {
+    connected.current = info;
+    setAddress(cameraAddress);
+    setRunning(true);
+    setNote(`Connected over ${info.protocol}`);
+  });
+  const status = useLiveView({ canvas, running, address, cameraDisplayOn, connected, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
@@ -308,15 +317,18 @@ export default function App() {
             onCameraDisplay={setCameraDisplayOn}
             status={status}
             newRelease={newRelease}
+            oneTap={oneTap}
             onStart={() => {
               const used = address.trim();
               setAddress(used);
               setRecent(rememberFirst(ADDRESSES_KEY, recent, used, ADDRESSES_KEPT));
+              oneTap.hideReport();
               setRunning(true);
             }}
             onStop={() => {
               closeAll();
               setRunning(false);
+              oneTap.stop();
             }}
           />
         )}

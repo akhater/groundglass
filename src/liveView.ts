@@ -13,6 +13,8 @@ export type LiveViewOptions = {
   canvas: HTMLCanvasElement;
   address: string;
   cameraDisplayOn: boolean;
+  /** A session one-tap connect already opened, taken once: reopening one at once can wedge the camera. */
+  connected: () => camera.CameraInfo | null;
   /** Read on every frame, so changing it needs no restart. Null = zebra off. */
   zebraPercent: () => number | null;
   /** Read on every frame too. Null = the camera's picture as it is. */
@@ -43,9 +45,12 @@ export function runLiveView(options: LiveViewOptions): Promise<void> {
   return run;
 }
 
-async function loop({ canvas, address, cameraDisplayOn, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
+/** Resolves once the last run has stopped the camera. */
+export const liveViewStopped = () => previousRun;
+
+async function loop({ canvas, address, cameraDisplayOn, connected, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
-  let info: camera.CameraInfo | null = null;
+  let info = connected();
   while (!signal.aborted) {
     try {
       onStatus({ state: "connecting" });

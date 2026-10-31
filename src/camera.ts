@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Mirrors `camera::CameraInfo`: `zoom` and `depthOfFieldPreview` say what live view can do (EOS Utility mode only). */
-export type CameraInfo = { model: string; firmware: string; zoom: boolean; depthOfFieldPreview: boolean };
+export type CameraInfo = { model: string; firmware: string; protocol: string; zoom: boolean; depthOfFieldPreview: boolean };
 
 /** Mirrors `camera::CameraError`. */
 export type CameraError =
@@ -18,6 +18,27 @@ export function connect(address: string, onPairing: () => void) {
   pairing.onmessage = onPairing;
   return invoke<CameraInfo>("connect", { address, pairing });
 }
+
+/** Only the Android app can wake the camera over Bluetooth. */
+export const canConnectOverBluetooth = navigator.userAgent.includes("Android");
+
+/** Mirrors `tauri_plugin_camera_link::Link`. `failure` says what to do, in one sentence. */
+export type BluetoothLink = {
+  woke: boolean;
+  wifiStarted: boolean;
+  joined: boolean;
+  address: string | null;
+  failure: string | null;
+};
+/** Wakes the paired camera over Bluetooth and joins its Wi-Fi. */
+export const bluetoothConnect = () => invoke<BluetoothLink>("bluetooth_connect");
+/** Lets go of the camera's Wi-Fi and Bluetooth: the phone's traffic goes back to normal. */
+export const bluetoothRelease = () => invoke<void>("bluetooth_release");
+
+/** Mirrors `survey::Survey`. */
+export type Survey = { services: string[]; ports: number[] };
+/** What the camera offers, for when `connect` found nothing it could open. */
+export const cameraSurvey = (address: string) => invoke<Survey>("camera_survey", { address });
 
 export const startLiveView = (cameraDisplayOn: boolean) =>
   invoke<void>("start_live_view", { cameraDisplayOn });

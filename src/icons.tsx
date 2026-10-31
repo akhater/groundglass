@@ -24,6 +24,7 @@ const PATHS = {
   left: "M14.5 6 8.5 12l6 6",
   right: "M9.5 6l6 6-6 6",
   newRelease: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 16.5v-9M8 11l4-3.5 4 3.5",
+  bluetooth: "M6.5 7.5 17.5 16.5 12 21V3l5.5 4.5-11 9",
 };
 
 export type IconName = keyof typeof PATHS;
