@@ -12,7 +12,7 @@ export type OneTapReport = {
 };
 
 /** What happened on the camera's Wi-Fi once joined. */
-export type Answer = { protocol?: string; live: boolean; error?: string; survey?: Survey };
+export type Answer = { protocol?: string; refused?: boolean; live: boolean; error?: string; survey?: Survey };
 
 /** The first step not reached is the one that failed; the rest were never tried. */
 function steps(reached: [string, boolean][]): ReportStep[] {
@@ -23,13 +23,21 @@ function steps(reached: [string, boolean][]): ReportStep[] {
   }));
 }
 
-function detail({ error, survey }: Answer): string | null {
+function detail(link: BluetoothLink, answer?: Answer): string | null {
+  const { error, survey } = answer ?? {};
   const parts = [
+    link.registration,
     error,
     ...(survey?.services ?? []),
     survey?.ports.length ? `ports ${survey.ports.join(", ")}` : undefined,
   ];
   return parts.filter(Boolean).join(" · ") || null;
+}
+
+function nextStep({ protocol, refused }: Answer): string {
+  if (refused) return "The camera answered but refused Groundglass: turn it off and on, then tap again.";
+  if (protocol) return "Live view didn't start: turn the camera off and on, then tap again.";
+  return "Nothing answered on the camera's Wi-Fi: turn the camera off and on, then tap again.";
 }
 
 export function oneTapReport(link: BluetoothLink, answer?: Answer): OneTapReport {
@@ -41,11 +49,8 @@ export function oneTapReport(link: BluetoothLink, answer?: Answer): OneTapReport
       [answer?.protocol ? `${answer.protocol} answered` : "Protocol answered", !!answer?.protocol],
     ]),
     message: link.failure,
-    detail: answer ? detail(answer) : null,
+    detail: detail(link, answer),
   };
   if (!answer || answer.live) return report;
-  const message = answer.protocol
-    ? "Live view didn't start: turn the camera off and on, then tap again."
-    : "Nothing answered on the camera's Wi-Fi: turn the camera off and on, then tap again.";
-  return { ...report, message };
+  return { ...report, message: nextStep(answer) };
 }

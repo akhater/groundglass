@@ -5,6 +5,7 @@ import android.app.Activity
 import android.os.Build
 import app.tauri.PermissionState
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
@@ -14,6 +15,12 @@ import app.tauri.plugin.Plugin
 import kotlin.concurrent.thread
 
 private const val BLUETOOTH = "bluetooth"
+
+@InvokeArg
+class ConnectArgs {
+    lateinit var clientId: IntArray
+    lateinit var clientName: String
+}
 
 /** A step that can't go on; [sentence] tells the user what to do. */
 class Stop(val sentence: String) : Exception(sentence)
@@ -59,7 +66,9 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         thread(name = "camera-link") {
             val report = report()
             try {
-                link(report)
+                val args = invoke.parseArgs(ConnectArgs::class.java)
+                val client = Client(ByteArray(args.clientId.size) { args.clientId[it].toByte() }, args.clientName)
+                link(client, report)
             } catch (stop: Stop) {
                 close()
                 report.put("failure", stop.sentence)
@@ -72,13 +81,13 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /** Marks each step in [report] as it passes, so a failure shows how far it got. */
-    private fun link(report: JSObject) {
+    private fun link(client: Client, report: JSObject) {
         close()
         blocker()?.let { throw Stop(it) }
         val gatt = CameraGatt.open(activity)
         camera = gatt
         report.put("woke", true)
-        val access = startWifi(gatt)
+        val access = startWifi(gatt, client) { report.put("registration", it) }
         report.put("wifiStarted", true)
         wifi.join(access.name, access.password)
         report.put("joined", true)

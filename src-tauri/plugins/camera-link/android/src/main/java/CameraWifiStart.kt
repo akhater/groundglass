@@ -21,6 +21,9 @@ private val WIFI_DETAILS = canon("00020005")
 private val WIFI_PASSWORD = canon("00020006")
 
 private val SETUP_CODES = byteArrayOf(0x01, 0x06, 0x07, 0x08, 0x0c)
+private const val CLIENT_ID_CODE: Byte = 0x03
+private const val CLIENT_NAME_CODE: Byte = 0x04
+private val CLIENT_MODE = byteArrayOf(0x05, 0x02)
 private val SESSION_START = byteArrayOf(0x05, 0, 0, 0, 0, 0, 0, 0)
 private val ASK_ADDRESS = byteArrayOf(0x0a)
 private val START_WIFI = byteArrayOf(0x01)
@@ -37,12 +40,16 @@ private const val NO_WIFI = "The camera didn't start its Wi-Fi: close Canon's ap
 
 class WifiAccess(val name: String, val password: String, val cameraAddress: String)
 
+/** Who will log in over PTP/IP: the id and name its Init sends. */
+class Client(val id: ByteArray, val name: String)
+
 /**
  * The steps of a bonded reconnect in Camera Connect's order, then the write
- * that starts Wi-Fi. Which of them the camera requires isn't known yet. The
- * first-time pairing writes (00010006 and the app's id) are left out on purpose.
+ * that starts Wi-Fi. Which of them the camera requires isn't known yet.
+ * [onRegistered] hears how the camera took [client]. The first-time pairing
+ * write to 00010006 is left out on purpose: the phone holds the bond already.
  */
-fun startWifi(camera: CameraGatt): WifiAccess {
+fun startWifi(camera: CameraGatt, client: Client, onRegistered: (String) -> Unit): WifiAccess {
     camera.read(canon("0001000b"))
     DEVICE_INFORMATION.forEach { camera.read(it) }
     camera.read(canon("00010005"))
@@ -55,6 +62,7 @@ fun startWifi(camera: CameraGatt): WifiAccess {
     camera.read(canon("00040001"))
     camera.read(SESSION_REPLY)
     camera.indications(SESSION_REPLY)
+    onRegistered(register(camera, client))
 
     camera.write(WIFI_COMMAND, ASK_ADDRESS)
     val address = camera.change(WIFI_COMMAND, REPLY_WAIT_S)?.let(::cameraAddress) ?: throw Stop(NO_WIFI)
@@ -73,6 +81,24 @@ fun startWifi(camera: CameraGatt): WifiAccess {
     camera.write(WIFI_COMMAND, START_WIFI)
     camera.change(WIFI_STATE, WIFI_START_WAIT_S) { it.contentEquals(WIFI_RUNNING) } ?: throw Stop(NO_WIFI)
     return WifiAccess(name, password, address)
+}
+
+/**
+ * Camera Connect writes these once, when pairing, just before asking for the
+ * address: its 16-byte id, then its name as text, then `05 02`. Without them
+ * the camera answers PTP/IP but refuses Init. A refusal doesn't stop the steps
+ * after it, so a test shows how far the camera goes. Returns how each write went.
+ */
+private fun register(camera: CameraGatt, client: Client): String {
+    val writes = listOf(
+        "id" to byteArrayOf(CLIENT_ID_CODE) + client.id,
+        "name" to byteArrayOf(CLIENT_NAME_CODE) + client.name.toByteArray(Charsets.UTF_8),
+        "mode" to CLIENT_MODE,
+    )
+    return writes.joinToString(", ") { (label, value) ->
+        val outcome = if (camera.tryWrite(SETUP_COMMAND, value)) "ok" else "refused"
+        "$label $outcome"
+    }
 }
 
 /** `7f 10 10 04`, then the IPv4 address lowest byte first, then more this doesn't need. */

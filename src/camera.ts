@@ -10,7 +10,7 @@ export type CameraError =
   | { kind: "LiveViewOff" }
   | { kind: "Busy" }
   | { kind: "Refused"; detail: string }
-  | { kind: "PairingRefused" };
+  | { kind: "PairingRefused"; detail: number };
 
 /** `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera. */
 export function connect(address: string, onPairing: () => void) {
@@ -30,6 +30,8 @@ export type BluetoothLink = {
   wifiStarted: boolean;
   joined: boolean;
   address: string | null;
+  /** How the camera took the app's id and name, write by write. */
+  registration: string | null;
   failure: string | null;
 };
 /** Wakes the paired camera over Bluetooth and joins its Wi-Fi. */
@@ -118,6 +120,9 @@ export const readLut = (name: string) => invoke<string>("read_lut", { name });
 export const newerRelease = (answer: string) => invoke<string | null>("newer_release", { answer });
 /** Opens the latest release's page in the system browser. */
 export const openReleasePage = () => invoke<void>("open_release_page");
+
+/** The camera answered PTP/IP and turned the pairing down. */
+export const isPairingRefused = (error: unknown) => (error as CameraError)?.kind === "PairingRefused";
 
 /** The camera can't answer this instant (e.g. a photo is being taken). */
 export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";

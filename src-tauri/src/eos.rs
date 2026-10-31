@@ -491,7 +491,7 @@ fn camera_error(error: ptpip::Error) -> CameraError {
     match error {
         ptpip::Error::Busy => CameraError::Busy,
         ptpip::Error::Connection(detail) => CameraError::Unreachable(detail),
-        ptpip::Error::PairingRefused => CameraError::PairingRefused,
+        ptpip::Error::PairingRefused(reason) => CameraError::PairingRefused(reason),
         other => CameraError::Refused(other.to_string()),
     }
 }
@@ -782,7 +782,7 @@ mod tests {
             camera_error(Error::Connection("timed out".into())),
             CameraError::Unreachable("timed out".into())
         );
-        assert_eq!(camera_error(Error::PairingRefused), CameraError::PairingRefused);
+        assert_eq!(camera_error(Error::PairingRefused(1)), CameraError::PairingRefused(1));
         assert!(matches!(
             camera_error(Error::Response { operation: 0x9128, response: 0x2002 }),
             CameraError::Refused(_)

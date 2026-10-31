@@ -21,8 +21,8 @@ pub enum CameraError {
     Busy,
     /// The camera answered with an error.
     Refused(String),
-    /// The camera turned down pairing with Groundglass (EOS Utility mode).
-    PairingRefused,
+    /// The camera turned down pairing with Groundglass (PTP/IP), giving this reason.
+    PairingRefused(u32),
 }
 
 pub type Result<T> = std::result::Result<T, CameraError>;

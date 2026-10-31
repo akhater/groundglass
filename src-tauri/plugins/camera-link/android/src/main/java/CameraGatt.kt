@@ -80,11 +80,16 @@ class CameraGatt private constructor() {
     }
 
     fun write(uuid: UUID, value: ByteArray) {
+        if (!tryWrite(uuid, value)) throw Stop(NOT_ANSWERING)
+    }
+
+    /** False if the camera turns the write down: the link stays up. */
+    fun tryWrite(uuid: UUID, value: ByteArray): Boolean {
         val characteristic = characteristic(uuid)
         characteristic.value = value
         characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         started(link().writeCharacteristic(characteristic))
-        answer()
+        return answers.poll(ANSWER_WAIT_S, TimeUnit.SECONDS)?.ok == true
     }
 
     fun notifications(uuid: UUID) = subscribe(uuid, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)

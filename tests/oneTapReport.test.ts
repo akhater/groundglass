@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { oneTapReport } from "../src/oneTapReport.ts";
 
-const nothing = { woke: false, wifiStarted: false, joined: false, address: null, failure: null };
-const joined = { woke: true, wifiStarted: true, joined: true, address: "192.168.1.2", failure: null };
+const nothing = { woke: false, wifiStarted: false, joined: false, address: null, registration: null, failure: null };
+const joined = { ...nothing, woke: true, wifiStarted: true, joined: true, address: "192.168.1.2" };
 const states = (report: ReturnType<typeof oneTapReport>) => report.steps.map((step) => step.state);
 
 test("a step that failed is marked, and the ones after it were never reached", () => {
@@ -43,4 +43,21 @@ test("when nothing answers, the report lists what the camera does offer", () => 
 test("a survey that found nothing adds nothing to the detail", () => {
   const report = oneTapReport(joined, { live: false, error: "no answer", survey: { services: [], ports: [] } });
   assert.equal(report.detail, "no answer");
+});
+
+test("a camera that refuses did answer: the steps and the sentence both say so", () => {
+  const survey = { services: ["ICPO-SmartPhoneEOSSystemService"], ports: [15740] };
+  const report = oneTapReport(joined, { protocol: "PTP/IP", refused: true, live: false, error: "refused to pair, reason 1", survey });
+  assert.deepEqual(states(report), ["done", "done", "done", "done"]);
+  assert.equal(report.steps[3].label, "PTP/IP answered");
+  assert.match(report.message!, /refused/i);
+  assert.doesNotMatch(report.message!, /nothing answered/i);
+  assert.equal(report.detail, "refused to pair, reason 1 · ICPO-SmartPhoneEOSSystemService · ports 15740");
+});
+
+test("how the Bluetooth registration went leads the detail, even when Wi-Fi never started", () => {
+  const registration = "id ok, name ok, mode refused";
+  assert.equal(oneTapReport({ ...nothing, registration, failure: "Tap again." }).detail, registration);
+  const report = oneTapReport({ ...joined, registration }, { live: false, error: "no answer" });
+  assert.equal(report.detail, `${registration} · no answer`);
 });

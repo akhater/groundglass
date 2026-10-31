@@ -58,7 +58,7 @@ fn bluetooth_ready(link: State<CameraLink<Wry>>) -> Result<bool, String> {
 /// Wakes the paired camera over Bluetooth and joins its Wi-Fi (Android only).
 #[tauri::command(async)]
 fn bluetooth_connect(link: State<CameraLink<Wry>>) -> Result<Link, String> {
-    link.connect()
+    link.connect(&ptpip::GUID, ptpip::NAME)
 }
 
 /// Lets go of the camera's Wi-Fi and Bluetooth, once live view has stopped.

@@ -13,11 +13,12 @@ const PORT: u16 = 15740;
 /// 1.0, as Canon's EOS Utility sends it to the R6 Mark III (recorded 2026-10-29).
 const PROTOCOL_VERSION: u32 = 0x0001_0000;
 /// The camera pairs with this GUID and name, and reconnects without asking as
-/// long as both stay the same. A random UUID, generated once.
-const GUID: [u8; 16] = [
+/// long as both stay the same. A random UUID, generated once. One-tap connect
+/// gives the camera the same two over Bluetooth.
+pub const GUID: [u8; 16] = [
     0xd5, 0xca, 0x31, 0x78, 0xf1, 0x48, 0x4b, 0xee, 0xb9, 0x64, 0xe2, 0xcb, 0xa3, 0x3a, 0xe3, 0x61,
 ];
-const NAME: &str = "Groundglass";
+pub const NAME: &str = "Groundglass";
 /// Packets larger than this are refused (live view frames are well under).
 const MAX_PACKET: usize = 16 << 20;
 
@@ -73,8 +74,8 @@ mod packet {
 pub enum Error {
     /// No connection, or it failed or timed out.
     Connection(String),
-    /// The camera turned the pairing down (Init_Fail).
-    PairingRefused,
+    /// The camera turned the pairing down (Init_Fail), giving this reason.
+    PairingRefused(u32),
     /// The camera can't answer this instant: busy (0x2019), or no live view frame yet (0xA102).
     Busy,
     /// The camera answered `operation` with `response` instead of OK.
@@ -87,7 +88,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Connection(detail) | Self::Protocol(detail) => f.write_str(detail),
-            Self::PairingRefused => f.write_str("the camera refused to pair"),
+            Self::PairingRefused(reason) => write!(f, "the camera refused to pair (reason 0x{reason:x})"),
             Self::Busy => f.write_str("the camera is busy"),
             Self::Response { operation, response } => {
                 write!(f, "the camera answered 0x{response:04x} to 0x{operation:04x}")
@@ -139,7 +140,7 @@ impl Session {
         let (kind, ack) = receive(&mut command)?;
         match kind {
             packet::INIT_COMMAND_ACK if ack.len() >= 4 => {}
-            packet::INIT_FAIL => return Err(Error::PairingRefused),
+            packet::INIT_FAIL => return Err(Error::PairingRefused(init_fail_reason(&ack))),
             other => return Err(Error::Protocol(format!("unexpected answer to pairing: packet type {other}"))),
         }
         command.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -444,6 +445,11 @@ fn init_command_request(guid: &[u8; 16], name: &str) -> Vec<u8> {
     }
     out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
     out
+}
+
+/// Init_Fail payload: the reason, a u32; 0 if the camera sends none.
+fn init_fail_reason(payload: &[u8]) -> u32 {
+    payload.first_chunk::<4>().map_or(0, |reason| u32::from_le_bytes(*reason))
 }
 
 /// Operation_Request payload for an operation that sends no data.
@@ -762,6 +768,13 @@ mod tests {
         // In CCAPI mode the camera keeps the connection open after the XML (2026-10-29).
         assert!(!description_complete(b"HTTP/1.1 200 OK\r\n\r\n<?xml version=\"1.0\"?><root><device>"));
         assert!(description_complete(b"HTTP/1.1 200 OK\r\n\r\n<root><device></device></root>\r\n"));
+    }
+
+    #[test]
+    fn a_pairing_refusal_keeps_the_camera_s_reason() {
+        assert_eq!(init_fail_reason(&[0x01, 0x00, 0x00, 0x00]), 1);
+        assert_eq!(init_fail_reason(&[0x1e, 0x20, 0x00, 0x00]), 0x201e);
+        assert_eq!(init_fail_reason(&[]), 0); // cut short
     }
 
     #[test]

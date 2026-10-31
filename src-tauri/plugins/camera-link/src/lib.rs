@@ -14,6 +14,8 @@ pub struct Link {
     pub wifi_started: bool,
     pub joined: bool,
     pub address: Option<String>,
+    /// How the camera took the app's id and name, write by write.
+    pub registration: Option<String>,
     pub failure: Option<String>,
 }
 
@@ -21,6 +23,14 @@ pub struct Link {
 #[cfg(target_os = "android")]
 #[derive(Serialize)]
 struct NoArguments {}
+
+#[cfg(target_os = "android")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectArguments<'a> {
+    client_id: &'a [u8],
+    client_name: &'a str,
+}
 
 #[cfg(target_os = "android")]
 #[derive(Deserialize)]
@@ -39,9 +49,11 @@ impl<R: Runtime> CameraLink<R> {
         answer.map(|readiness| readiness.ready).map_err(|e| e.to_string())
     }
 
-    /// Blocks until the phone has joined the camera's Wi-Fi or given up.
-    pub fn connect(&self) -> Result<Link, String> {
-        self.0.run_mobile_plugin("connect", NoArguments {}).map_err(|e| e.to_string())
+    /// Blocks until the phone has joined the camera's Wi-Fi or given up. The
+    /// camera learns `client_id` and `client_name`: its PTP/IP Init must use the same.
+    pub fn connect(&self, client_id: &[u8; 16], client_name: &str) -> Result<Link, String> {
+        let arguments = ConnectArguments { client_id, client_name };
+        self.0.run_mobile_plugin("connect", arguments).map_err(|e| e.to_string())
     }
 
     /// Lets go of the camera's Wi-Fi and Bluetooth; the phone's traffic goes back to normal.
@@ -59,7 +71,7 @@ impl<R: Runtime> CameraLink<R> {
         Ok(false)
     }
 
-    pub fn connect(&self) -> Result<Link, String> {
+    pub fn connect(&self, _client_id: &[u8; 16], _client_name: &str) -> Result<Link, String> {
         Err("Bluetooth connect is on Android only.".into())
     }
 
