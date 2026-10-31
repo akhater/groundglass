@@ -141,13 +141,15 @@ button:disabled {
   padding: 8px max(12px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 
+/* Room for 1/8000, f1.4 and 102400 in full in the phone's own font; the look takes the rest. */
 .settings {
   display: grid;
-  grid-template-columns: 1fr 0.8fr 0.75fr 1.45fr;
+  grid-template-columns: repeat(3, minmax(78px, 1fr)) minmax(0, 1.45fr);
 }
 
 .settings .setting {
   align-items: center;
+  padding-inline: 6px;
   text-align: center;
 }
 
@@ -237,6 +239,7 @@ button:disabled {
   }
   .settings .setting {
     align-items: flex-start;
+    padding-inline: 10px;
     text-align: left;
   }
   .settings .setting + .setting {
