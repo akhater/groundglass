@@ -11,8 +11,11 @@ export type OneTapReport = {
   detail: string | null;
 };
 
-/** What happened on the camera's Wi-Fi once joined. */
-export type Answer = { protocol?: string; refused?: boolean; live: boolean; error?: string; survey?: Survey };
+/** What happened on the camera's Wi-Fi once joined. `refused`: the reason it gave for turning the pairing down. */
+export type Answer = { protocol?: string; refused?: number; live: boolean; error?: string; survey?: Survey };
+
+/** The camera doesn't accept this client: only pairing again can change that. */
+const REJECTED_INITIATOR = 1;
 
 /** The first step not reached is the one that failed; the rest were never tried. */
 function steps(reached: [string, boolean][]): ReportStep[] {
@@ -35,7 +38,10 @@ function detail(link: BluetoothLink, answer?: Answer): string | null {
 }
 
 function nextStep({ protocol, refused }: Answer): string {
-  if (refused) return "The camera answered but refused Groundglass: turn it off and on, then tap again.";
+  if (refused === REJECTED_INITIATOR) {
+    return "The camera doesn't know this app yet: forget the camera in the phone's Bluetooth settings, open its pairing screen, then tap again.";
+  }
+  if (refused !== undefined) return "The camera answered but refused Groundglass: turn it off and on, then tap again.";
   if (protocol) return "Live view didn't start: turn the camera off and on, then tap again.";
   return "Nothing answered on the camera's Wi-Fi: turn the camera off and on, then tap again.";
 }

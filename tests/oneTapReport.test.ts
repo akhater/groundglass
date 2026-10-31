@@ -47,12 +47,18 @@ test("a survey that found nothing adds nothing to the detail", () => {
 
 test("a camera that refuses did answer: the steps and the sentence both say so", () => {
   const survey = { services: ["ICPO-SmartPhoneEOSSystemService"], ports: [15740] };
-  const report = oneTapReport(joined, { protocol: "PTP/IP", refused: true, live: false, error: "refused to pair, reason 1", survey });
+  const report = oneTapReport(joined, { protocol: "PTP/IP", refused: 2, live: false, error: "refused to pair, reason 0x2", survey });
   assert.deepEqual(states(report), ["done", "done", "done", "done"]);
   assert.equal(report.steps[3].label, "PTP/IP answered");
   assert.match(report.message!, /refused/i);
   assert.doesNotMatch(report.message!, /nothing answered/i);
-  assert.equal(report.detail, "refused to pair, reason 1 · ICPO-SmartPhoneEOSSystemService · ports 15740");
+  assert.equal(report.detail, "refused to pair, reason 0x2 · ICPO-SmartPhoneEOSSystemService · ports 15740");
+});
+
+test("a camera that doesn't know this client says to pair, not to restart it", () => {
+  const report = oneTapReport(joined, { protocol: "PTP/IP", refused: 1, live: false, error: "refused to pair, reason 0x1" });
+  assert.match(report.message!, /forget the camera.*pairing screen.*tap again/i);
+  assert.doesNotMatch(report.message!, /off and on/i);
 });
 
 test("how the Bluetooth registration went leads the detail, even when Wi-Fi never started", () => {

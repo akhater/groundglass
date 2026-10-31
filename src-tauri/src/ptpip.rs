@@ -13,10 +13,11 @@ const PORT: u16 = 15740;
 /// 1.0, as Canon's EOS Utility sends it to the R6 Mark III (recorded 2026-10-29).
 const PROTOCOL_VERSION: u32 = 0x0001_0000;
 /// The camera pairs with this GUID and name, and reconnects without asking as
-/// long as both stay the same. A random UUID, generated once. One-tap connect
-/// gives the camera the same two over Bluetooth.
+/// long as both stay the same. A random UUID, generated once, last byte first
+/// as Canon's app sends its own over Bluetooth. First-time pairing gives the
+/// camera the same two over Bluetooth.
 pub const GUID: [u8; 16] = [
-    0xd5, 0xca, 0x31, 0x78, 0xf1, 0x48, 0x4b, 0xee, 0xb9, 0x64, 0xe2, 0xcb, 0xa3, 0x3a, 0xe3, 0x61,
+    0x61, 0xe3, 0x3a, 0xa3, 0xcb, 0xe2, 0x64, 0xb9, 0xee, 0x4b, 0x48, 0xf1, 0x78, 0x31, 0xca, 0xd5,
 ];
 pub const NAME: &str = "Groundglass";
 /// Packets larger than this are refused (live view frames are well under).
@@ -768,6 +769,13 @@ mod tests {
         // In CCAPI mode the camera keeps the connection open after the XML (2026-10-29).
         assert!(!description_complete(b"HTTP/1.1 200 OK\r\n\r\n<?xml version=\"1.0\"?><root><device>"));
         assert!(description_complete(b"HTTP/1.1 200 OK\r\n\r\n<root><device></device></root>\r\n"));
+    }
+
+    #[test]
+    fn the_guid_has_the_shape_of_the_id_canon_sends_over_bluetooth() {
+        // A version 4 UUID, last byte first: the version in byte 9, the variant in byte 7.
+        assert_eq!(GUID[9] >> 4, 4);
+        assert_eq!(GUID[7] >> 6, 2);
     }
 
     #[test]

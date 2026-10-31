@@ -8,9 +8,9 @@ import { oneTapReport, type OneTapReport } from "./oneTapReport";
 
 /** The camera's own words: `describe` is written for an address typed by hand. */
 function rawError(error: unknown): string {
-  const detail = (error as { detail?: string | number })?.detail;
-  if (camera.isPairingRefused(error)) return `refused to pair, reason 0x${detail?.toString(16)}`;
-  return detail?.toString() ?? camera.describe(error);
+  const reason = camera.refusalReason(error);
+  if (reason !== null) return `refused to pair, reason 0x${reason.toString(16)}`;
+  return (error as { detail?: string })?.detail ?? camera.describe(error);
 }
 
 async function reach(address: string, cameraDisplayOn: boolean, link: camera.BluetoothLink, onPairing: () => void) {
@@ -20,9 +20,9 @@ async function reach(address: string, cameraDisplayOn: boolean, link: camera.Blu
   } catch (error) {
     const survey = await camera.cameraSurvey(address);
     // Only PTP/IP can refuse a pairing, and a refusal is an answer.
-    const refused = camera.isPairingRefused(error);
-    const answer = { protocol: refused ? "PTP/IP" : undefined, refused, live: false, error: rawError(error), survey };
-    return { info: null, report: oneTapReport(link, answer) };
+    const refused = camera.refusalReason(error) ?? undefined;
+    const protocol = refused === undefined ? undefined : "PTP/IP";
+    return { info: null, report: oneTapReport(link, { protocol, refused, live: false, error: rawError(error), survey }) };
   }
   try {
     await camera.startLiveView(cameraDisplayOn);

@@ -121,8 +121,11 @@ export const newerRelease = (answer: string) => invoke<string | null>("newer_rel
 /** Opens the latest release's page in the system browser. */
 export const openReleasePage = () => invoke<void>("open_release_page");
 
-/** The camera answered PTP/IP and turned the pairing down. */
-export const isPairingRefused = (error: unknown) => (error as CameraError)?.kind === "PairingRefused";
+/** The reason the camera gave for turning a PTP/IP pairing down; null for any other error. */
+export function refusalReason(error: unknown): number | null {
+  const e = error as CameraError;
+  return e?.kind === "PairingRefused" ? e.detail : null;
+}
 
 /** The camera can't answer this instant (e.g. a photo is being taken). */
 export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";

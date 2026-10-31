@@ -18,7 +18,11 @@ private val CLIENT_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34f
 private const val CONNECT_ATTEMPTS = 2
 private const val CONNECT_WAIT_S = 12L
 private const val ANSWER_WAIT_S = 5L
+/** Android asks the user first, the one time. */
+private const val BOND_WAIT_S = 60
+private const val BOND_POLL_MS = 200L
 private const val NOT_ANSWERING = "The camera stopped answering over Bluetooth: tap again."
+private const val NOT_PAIRED = "The phone and camera didn't pair: open the camera's pairing screen, then tap again."
 
 private class Answer(val ok: Boolean, val value: ByteArray? = null)
 /** A notification or indication; a null [uuid] means the link is gone. */
@@ -72,6 +76,22 @@ class CameraGatt private constructor() {
         val connected = answers.poll(CONNECT_WAIT_S, TimeUnit.SECONDS)?.ok == true
         if (!connected) close()
         return connected
+    }
+
+    /** Bonds with the connected camera, which takes Just Works: Android shows its dialog, the camera nothing. */
+    fun bond() {
+        val device = link().device
+        if (!device.createBond()) throw Stop(NOT_PAIRED)
+        var started = false
+        repeat(BOND_WAIT_S * 1000 / BOND_POLL_MS.toInt()) {
+            when (device.bondState) {
+                BluetoothDevice.BOND_BONDED -> return
+                BluetoothDevice.BOND_BONDING -> started = true
+                else -> if (started) throw Stop(NOT_PAIRED)
+            }
+            Thread.sleep(BOND_POLL_MS)
+        }
+        throw Stop(NOT_PAIRED)
     }
 
     fun read(uuid: UUID): ByteArray {
@@ -142,10 +162,12 @@ class CameraGatt private constructor() {
         /** Needs no permission on any version the app runs on: the manifest covers the older ones. */
         fun isBluetoothOn(context: Context) = adapter(context)?.isEnabled == true
 
-        /** Connects to the camera the phone is paired with, waking it if needed. */
-        fun open(context: Context): CameraGatt {
-            val device = adapter(context)?.bondedDevices?.firstOrNull { isCamera(it) }
-                ?: throw Stop("No paired camera: pair it once with Canon's Camera Connect, then tap again.")
+        /** The camera this phone is paired with, if any. */
+        fun bondedCamera(context: Context): BluetoothDevice? =
+            adapter(context)?.bondedDevices?.firstOrNull { isCamera(it) }
+
+        /** Connects to the camera, waking it if needed. */
+        fun open(context: Context, device: BluetoothDevice): CameraGatt {
             repeat(CONNECT_ATTEMPTS) {
                 val camera = CameraGatt()
                 if (camera.connect(context, device)) return camera

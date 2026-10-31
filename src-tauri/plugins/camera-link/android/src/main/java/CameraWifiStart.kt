@@ -3,7 +3,7 @@ package co.groundglass.cameralink
 import java.util.UUID
 
 /** Canon's Bluetooth protocol, as Camera Connect uses it on an EOS R6 Mark III (recorded 2026-10-31). */
-private fun canon(id: String) = UUID.fromString("$id-0000-1000-0000-d8492fffa821")
+fun canon(id: String): UUID = UUID.fromString("$id-0000-1000-0000-d8492fffa821")
 private fun standard(id: String) = UUID.fromString("0000$id-0000-1000-8000-00805f9b34fb")
 
 val CANON_SERVICE: UUID = canon("00010000")
@@ -45,11 +45,11 @@ class Client(val id: ByteArray, val name: String)
 
 /**
  * The steps of a bonded reconnect in Camera Connect's order, then the write
- * that starts Wi-Fi. Which of them the camera requires isn't known yet.
- * [onRegistered] hears how the camera took [client]. The first-time pairing
- * write to 00010006 is left out on purpose: the phone holds the bond already.
+ * that starts Wi-Fi. Which of them the camera requires isn't known yet. Right
+ * after pairing there is a [client] to register, and [onRegistered] hears how
+ * the camera took it; a plain reconnect has none, as in the recordings.
  */
-fun startWifi(camera: CameraGatt, client: Client, onRegistered: (String) -> Unit): WifiAccess {
+fun startWifi(camera: CameraGatt, client: Client?, onRegistered: (String) -> Unit): WifiAccess {
     camera.read(canon("0001000b"))
     DEVICE_INFORMATION.forEach { camera.read(it) }
     camera.read(canon("00010005"))
@@ -62,7 +62,7 @@ fun startWifi(camera: CameraGatt, client: Client, onRegistered: (String) -> Unit
     camera.read(canon("00040001"))
     camera.read(SESSION_REPLY)
     camera.indications(SESSION_REPLY)
-    onRegistered(register(camera, client))
+    client?.let { onRegistered(register(camera, it)) }
 
     camera.write(WIFI_COMMAND, ASK_ADDRESS)
     val address = camera.change(WIFI_COMMAND, REPLY_WAIT_S)?.let(::cameraAddress) ?: throw Stop(NO_WIFI)
@@ -85,9 +85,10 @@ fun startWifi(camera: CameraGatt, client: Client, onRegistered: (String) -> Unit
 
 /**
  * Camera Connect writes these once, when pairing, just before asking for the
- * address: its 16-byte id, then its name as text, then `05 02`. Without them
- * the camera answers PTP/IP but refuses Init. A refusal doesn't stop the steps
- * after it, so a test shows how far the camera goes. Returns how each write went.
+ * address: its 16-byte id, then its name as text, then `05 02`. On a plain
+ * reconnect the camera accepts the writes and still refuses Init. A refusal
+ * doesn't stop the steps after it, so a test shows how far the camera goes.
+ * Returns how each write went.
  */
 private fun register(camera: CameraGatt, client: Client): String {
     val writes = listOf(

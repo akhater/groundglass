@@ -15,9 +15,11 @@ Newest first.
   almost all colours stay within one or two steps out of 255. A PNG that isn't
   a HaldCLUT is refused with the reason.
 - **One-tap connect (Android, being tested):** a Bluetooth button beside Start
-  wakes a camera already paired with the phone, starts its Wi-Fi and joins it
-  for Groundglass alone, so the phone stays on mobile data. Each step shows as
-  it went, and which protocol answered.
+  pairs with a camera on its pairing screen the first time. After that it wakes
+  the camera, starts its Wi-Fi and joins it for Groundglass alone, so the phone
+  stays on mobile data. Each step shows as it went, and which protocol answered.
+  Groundglass has a new id for this: EOS Utility mode asks for OK on the camera
+  once more.
 
 ## 26.44.4 - 2026-10-29
 

@@ -14,7 +14,8 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import kotlin.concurrent.thread
 
-private const val BLUETOOTH = "bluetooth"
+private const val NEARBY = "nearby"
+private const val LOCATION = "location"
 
 @InvokeArg
 class ConnectArgs {
@@ -26,7 +27,10 @@ class ConnectArgs {
 class Stop(val sentence: String) : Exception(sentence)
 
 /** Wakes the paired camera and joins its Wi-Fi. Every outcome resolves: failures are a sentence in the report. */
-@TauriPlugin(permissions = [Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = BLUETOOTH)])
+@TauriPlugin(permissions = [
+    Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN], alias = NEARBY),
+    Permission(strings = [Manifest.permission.ACCESS_FINE_LOCATION], alias = LOCATION),
+])
 class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private val wifi = WifiJoin(activity)
     /** Held while connected: the recordings keep Bluetooth up during live view. */
@@ -40,19 +44,19 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun connect(invoke: Invoke) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || getPermissionState(BLUETOOTH) == PermissionState.GRANTED) {
+        if (getPermissionState(permission()) == PermissionState.GRANTED) {
             start(invoke)
         } else {
-            requestPermissionForAlias(BLUETOOTH, invoke, "permissionAnswered")
+            requestPermissionForAlias(permission(), invoke, "permissionAnswered")
         }
     }
 
     @PermissionCallback
     fun permissionAnswered(invoke: Invoke) {
-        if (getPermissionState(BLUETOOTH) == PermissionState.GRANTED) {
+        if (getPermissionState(permission()) == PermissionState.GRANTED) {
             start(invoke)
         } else {
-            invoke.resolve(report().put("failure", "Allow Nearby devices for this app, then tap again."))
+            invoke.resolve(report().put("failure", "Allow what Android asked for, then tap again."))
         }
     }
 
@@ -84,15 +88,20 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private fun link(client: Client, report: JSObject) {
         close()
         blocker()?.let { throw Stop(it) }
-        val gatt = CameraGatt.open(activity)
+        val bonded = CameraGatt.bondedCamera(activity)
+        val gatt = CameraGatt.open(activity, bonded ?: findCameraToPair(activity))
         camera = gatt
         report.put("woke", true)
-        val access = startWifi(gatt, client) { report.put("registration", it) }
+        if (bonded == null) pair(gatt, client.name)
+        val access = startWifi(gatt, client.takeIf { bonded == null }) { report.put("registration", it) }
         report.put("wifiStarted", true)
         wifi.join(access.name, access.password)
         report.put("joined", true)
         report.put("address", access.cameraAddress)
     }
+
+    /** Bluetooth needs its own permissions from Android 12; before that, a scan counts as location. */
+    private fun permission() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) NEARBY else LOCATION
 
     /** What to do before a connect can start; null when it can. */
     private fun blocker(): String? =
