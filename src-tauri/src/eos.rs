@@ -57,6 +57,7 @@ impl Camera {
         let info = CameraInfo {
             model: device.model,
             firmware: firmware(&device.version).to_string(),
+            protocol: "PTP/IP",
             zoom: true,
             depth_of_field_preview: true,
         };

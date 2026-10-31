@@ -7,6 +7,7 @@ mod eos;
 mod luts;
 mod orientation;
 pub mod ptpip;
+mod survey;
 mod updates;
 
 use std::path::PathBuf;
@@ -16,7 +17,9 @@ use camera::{Battery, Camera, CameraError, CameraInfo, SettingState};
 use ccapi::ExposureSetting;
 use ettr_run::Outcome;
 use orientation::Upright;
-use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel, ipc::Response};
+use survey::Survey;
+use tauri::{AppHandle, Manager, RunEvent, State, Wry, ipc::Channel, ipc::Response};
+use tauri_plugin_camera_link::{CameraLink, Link};
 use tauri_plugin_opener::OpenerExt;
 
 /// The connected camera, if any. Calls clone the `Arc` and talk to the camera
@@ -44,6 +47,24 @@ fn connect(address: String, pairing: Channel<bool>, connection: State<Connection
     })?;
     *connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(camera));
     Ok(info)
+}
+
+/// Wakes the paired camera over Bluetooth and joins its Wi-Fi (Android only).
+#[tauri::command(async)]
+fn bluetooth_connect(link: State<CameraLink<Wry>>) -> Result<Link, String> {
+    link.connect()
+}
+
+/// Lets go of the camera's Wi-Fi and Bluetooth, once live view has stopped.
+#[tauri::command(async)]
+fn bluetooth_release(link: State<CameraLink<Wry>>) -> Result<(), String> {
+    link.release()
+}
+
+/// What the camera offers, for when `connect` found nothing it could open.
+#[tauri::command(async)]
+fn camera_survey(address: String) -> Survey {
+    survey::survey(&address)
 }
 
 #[tauri::command(async)]
@@ -167,9 +188,13 @@ fn open_release_page(app: AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_camera_link::init())
         .manage(Connection::default())
         .invoke_handler(tauri::generate_handler![
             connect,
+            bluetooth_connect,
+            bluetooth_release,
+            camera_survey,
             start_live_view,
             stop_live_view,
             frame,

@@ -32,6 +32,8 @@ pub type Result<T> = std::result::Result<T, CameraError>;
 pub struct CameraInfo {
     pub model: String,
     pub firmware: String,
+    /// The protocol that answered: "CCAPI" or "PTP/IP".
+    pub protocol: &'static str,
     /// Live view magnifies x5 and x10 (`Camera::zoom`).
     pub zoom: bool,
     /// The lens can stop down for a depth of field preview.
@@ -259,10 +261,11 @@ enum Mode {
 }
 
 /// From the camera's UPnP description: CCAPI lists its address
-/// (`X_accessURL`), EOS Utility mode its service. CCAPI whenever in doubt.
+/// (`X_accessURL`); a Canon service without one is PTP/IP, as in EOS Utility
+/// mode (`ICPO-WFTEOSSystemService`). CCAPI whenever in doubt.
 fn mode(description: &[u8]) -> Mode {
     let text = String::from_utf8_lossy(description);
-    if !text.contains("X_accessURL") && text.contains("ICPO-WFTEOSSystemService") {
+    if !text.contains("X_accessURL") && text.contains("ICPO-") {
         Mode::Ptp
     } else {
         Mode::Ccapi
@@ -270,7 +273,7 @@ fn mode(description: &[u8]) -> Mode {
 }
 
 /// `192.168.1.2` from `192.168.1.2`, `192.168.1.2:8080` or `http://192.168.1.2:8080/ccapi`.
-fn host(address: &str) -> &str {
+pub(crate) fn host(address: &str) -> &str {
     let host = address.trim().trim_start_matches("http://");
     let host = host.split('/').next().unwrap_or(host);
     host.split(':').next().unwrap_or(host)
@@ -291,6 +294,12 @@ mod tests {
         // A CCAPI address wins: CCAPI as before whenever it is listed.
         assert_eq!(mode(&[&ccapi[..], &eos[..]].concat()), Mode::Ccapi);
         assert_eq!(mode(b""), Mode::Ccapi);
+    }
+
+    #[test]
+    fn any_canon_service_without_a_ccapi_address_means_ptp() {
+        let smartphone = b"<serviceType>urn:schemas-canon-com:service:ICPO-SmartPhoneEOSSystemService:1</serviceType>";
+        assert_eq!(mode(smartphone), Mode::Ptp);
     }
 
     #[test]
