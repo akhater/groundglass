@@ -61,16 +61,15 @@ test("a camera that doesn't know this client says to pair, not to restart it", (
   assert.doesNotMatch(report.message!, /off and on/i);
 });
 
-test("each GUID order tried shows after the registration, in order, on a refusal and once live", () => {
+test("the GUID tried shows after the registration, on a refusal and once live", () => {
   const registration = "id ok, name ok, mode ok";
-  const attempts = ["GUID as written: refused 0x1", "GUID reversed: refused 0x1"];
   const survey = { services: [], ports: [15740] };
+  const attempts = ["GUID reversed: refused 0x1"];
   const refused = oneTapReport({ ...joined, registration }, { protocol: "PTP/IP", refused: 1, live: false, attempts, survey });
-  assert.equal(refused.detail, `${registration} · GUID as written: refused 0x1 · GUID reversed: refused 0x1 · ports 15740`);
+  assert.equal(refused.detail, `${registration} · GUID reversed: refused 0x1 · ports 15740`);
 
-  const won = ["GUID as written: refused 0x1", "GUID reversed: accepted"];
-  const live = oneTapReport(joined, { protocol: "PTP/IP", live: true, attempts: won });
-  assert.equal(live.detail, "GUID as written: refused 0x1 · GUID reversed: accepted");
+  const live = oneTapReport(joined, { protocol: "PTP/IP", live: true, attempts: ["GUID reversed: accepted"] });
+  assert.equal(live.detail, "GUID reversed: accepted");
   assert.equal(live.message, null);
 });
 

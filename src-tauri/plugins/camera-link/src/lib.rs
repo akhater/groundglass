@@ -14,7 +14,7 @@ pub struct Link {
     pub wifi_started: bool,
     pub joined: bool,
     pub address: Option<String>,
-    /// How the camera took the app's id and name, write by write.
+    /// How the camera took the app's id and name, write by write, or that the phone was already paired.
     pub registration: Option<String>,
     pub failure: Option<String>,
 }

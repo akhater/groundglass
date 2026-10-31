@@ -92,7 +92,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         val gatt = CameraGatt.open(activity, bonded ?: findCameraToPair(activity))
         camera = gatt
         report.put("woke", true)
-        if (bonded == null) pair(gatt, client.name)
+        if (bonded == null) pair(gatt, client.name) else report.put("registration", "already paired")
         val access = startWifi(gatt, client.takeIf { bonded == null }) { report.put("registration", it) }
         report.put("wifiStarted", true)
         wifi.join(access.name, access.password)

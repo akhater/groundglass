@@ -13,7 +13,7 @@ export type OneTapReport = {
 
 /**
  * What happened on the camera's Wi-Fi once joined. `refused`: the reason it gave for turning the pairing down.
- * `attempts`: how each GUID order went.
+ * `attempts`: how Init went with the GUID tried.
  */
 export type Answer = { protocol?: string; refused?: number; live: boolean; error?: string; attempts?: string[]; survey?: Survey };
 

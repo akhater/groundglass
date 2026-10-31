@@ -1,7 +1,6 @@
 // One-tap connect: Bluetooth wakes the camera and joins its Wi-Fi, then one
-// attempt over the normal path, for now once per GUID order. Only live view's own
-// loop retries, and that starts only once this has worked: the camera mustn't get
-// PTP/IP attempts in a row.
+// attempt over the normal path. Only live view's own loop retries, and that
+// starts only once this has worked: the camera mustn't get PTP/IP attempts in a row.
 import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { liveViewStopped } from "./liveView";

@@ -7,7 +7,6 @@ use crate::camera::Level;
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
-use std::thread;
 use std::time::Duration;
 
 const PORT: u16 = 15740;
@@ -21,8 +20,6 @@ pub const GUID: [u8; 16] = [
     0x61, 0xe3, 0x3a, 0xa3, 0xcb, 0xe2, 0x64, 0xb9, 0xee, 0x4b, 0x48, 0xf1, 0x78, 0x31, 0xca, 0xd5,
 ];
 pub const NAME: &str = "Groundglass";
-/// Between two GUID orders at Init. A refused Init opens no session.
-const ORDER_GAP: Duration = Duration::from_secs(5);
 /// Packets larger than this are refused (live view frames are well under).
 const MAX_PACKET: usize = 16 << 20;
 
@@ -140,10 +137,13 @@ impl Session {
     }
 
     /// As `open`, for finding out which GUID order the camera takes in
-    /// smartphone mode: the order written over Bluetooth, then the other, each
-    /// once, stopping at anything but a refusal. `report` hears how each went.
-    pub fn open_trying_orders(host: &str, pairing_wait: Duration, report: impl FnMut(String)) -> Result<Self, Error> {
-        try_orders(&guid_orders(), || thread::sleep(ORDER_GAP), report, |guid| Self::open_as(host, pairing_wait, guid))
+    /// smartphone mode: reversed from what Bluetooth writes. `report` hears how
+    /// it went. One try: within 6 s of a refusal the camera answers nothing on
+    /// its Wi-Fi (R6 Mark III, 2026-10-31), so a second Init can't reach it.
+    pub fn open_reversed(host: &str, pairing_wait: Duration, report: impl FnOnce(String)) -> Result<Self, Error> {
+        let result = Self::open_as(host, pairing_wait, &reversed_guid());
+        report(format!("GUID reversed: {}", outcome(&result)));
+        result
     }
 
     fn open_as(host: &str, pairing_wait: Duration, guid: &[u8; 16]) -> Result<Self, Error> {
@@ -462,38 +462,21 @@ fn init_command_request(guid: &[u8; 16], name: &str) -> Vec<u8> {
     out
 }
 
-/// The GUID as written over Bluetooth (last byte first, as Canon's app writes
-/// its id), then first byte first, as the one published Init carries a UUID.
-fn guid_orders() -> [(&'static str, [u8; 16]); 2] {
+/// The GUID first byte first, as the one published Init carries a UUID.
+/// Bluetooth writes it last byte first, as Canon's app writes its id.
+fn reversed_guid() -> [u8; 16] {
     let mut reversed = GUID;
     reversed.reverse();
-    [("as written", GUID), ("reversed", reversed)]
+    reversed
 }
 
-/// Tries the first order and, only if the camera refuses it, the second.
-fn try_orders<T>(
-    orders: &[(&str, [u8; 16]); 2],
-    pause: impl FnOnce(),
-    mut report: impl FnMut(String),
-    mut attempt: impl FnMut(&[u8; 16]) -> Result<T, Error>,
-) -> Result<T, Error> {
-    let mut tried = |(label, guid): &(&str, [u8; 16])| {
-        let result = attempt(guid);
-        let outcome = match &result {
-            Ok(_) => "accepted".to_string(),
-            Err(Error::PairingRefused(reason)) => format!("refused 0x{reason:x}"),
-            Err(error) => error.to_string(),
-        };
-        report(format!("GUID {label}: {outcome}"));
-        result
-    };
-    let [first, second] = orders;
-    let result = tried(first);
-    if !matches!(result, Err(Error::PairingRefused(_))) {
-        return result;
+/// How an Init went, in a few words for the report.
+fn outcome<T>(result: &Result<T, Error>) -> String {
+    match result {
+        Ok(_) => "accepted".to_string(),
+        Err(Error::PairingRefused(reason)) => format!("refused 0x{reason:x}"),
+        Err(error) => error.to_string(),
     }
-    pause();
-    tried(second)
 }
 
 /// Init_Fail payload: the reason, a u32; 0 if the camera sends none.
@@ -827,86 +810,19 @@ mod tests {
     }
 
     #[test]
-    fn the_second_guid_order_is_a_uuid_first_byte_first() {
-        let [(_, written), (_, reversed)] = guid_orders();
-        assert_eq!(written, GUID);
+    fn the_reversed_guid_is_a_uuid_first_byte_first() {
+        let reversed = reversed_guid();
         // As the Init published on julianschroden.com: the version in byte 6, the variant in byte 8.
         assert_eq!(reversed[6] >> 4, 4);
         assert_eq!(reversed[8] >> 6, 2);
+        assert_eq!(reversed[0], GUID[15]);
     }
 
     #[test]
-    fn a_refused_order_waits_then_tries_the_next_and_each_try_is_reported() {
-        let mut sent = Vec::new();
-        let mut heard = Vec::new();
-        let mut pauses = 0;
-        let result = try_orders(
-            &guid_orders(),
-            || pauses += 1,
-            |line| heard.push(line),
-            |guid| {
-                sent.push(*guid);
-                if sent.len() == 1 { Err(Error::PairingRefused(1)) } else { Ok(()) }
-            },
-        );
-        assert_eq!(result, Ok(()));
-        assert_eq!(sent, guid_orders().map(|(_, guid)| guid));
-        assert_eq!(pauses, 1);
-        assert_eq!(heard, ["GUID as written: refused 0x1", "GUID reversed: accepted"]);
-    }
-
-    #[test]
-    fn success_on_the_first_order_tries_no_other() {
-        let mut tries = 0;
-        let mut pauses = 0;
-        let result = try_orders(
-            &guid_orders(),
-            || pauses += 1,
-            |_| {},
-            |_| {
-                tries += 1;
-                Ok(())
-            },
-        );
-        assert_eq!(result, Ok(()));
-        assert_eq!((tries, pauses), (1, 0));
-    }
-
-    #[test]
-    fn only_a_refusal_moves_on_to_the_next_order() {
-        // No answer says nothing about the GUID, and the camera may be mid-session.
-        let mut tries = 0;
-        let mut heard = Vec::new();
-        let result: Result<(), Error> = try_orders(
-            &guid_orders(),
-            || {},
-            |line| heard.push(line),
-            |_| {
-                tries += 1;
-                Err(Error::Connection("no answer".into()))
-            },
-        );
-        assert_eq!(result, Err(Error::Connection("no answer".into())));
-        assert_eq!(tries, 1);
-        assert_eq!(heard, ["GUID as written: no answer"]);
-    }
-
-    #[test]
-    fn two_refusals_give_the_last_one_and_no_third_try() {
-        let mut tries = 0;
-        let mut heard = Vec::new();
-        let result: Result<(), Error> = try_orders(
-            &guid_orders(),
-            || {},
-            |line| heard.push(line),
-            |_| {
-                tries += 1;
-                Err(Error::PairingRefused(tries))
-            },
-        );
-        assert_eq!(result, Err(Error::PairingRefused(2)));
-        assert_eq!(tries, 2);
-        assert_eq!(heard, ["GUID as written: refused 0x1", "GUID reversed: refused 0x2"]);
+    fn an_init_is_reported_in_the_camera_s_terms() {
+        assert_eq!(outcome(&Ok(())), "accepted");
+        assert_eq!(outcome::<()>(&Err(Error::PairingRefused(1))), "refused 0x1");
+        assert_eq!(outcome::<()>(&Err(Error::Connection("connection timed out".into()))), "connection timed out");
     }
 
     #[test]

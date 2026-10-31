@@ -119,11 +119,11 @@ impl Camera {
     /// not CCAPI's server) says which; without one, CCAPI as before.
     /// `on_pairing` runs once the camera turns out to be in EOS Utility mode,
     /// where the first connect waits for OK on the camera. With `on_attempt`,
-    /// PTP/IP tries each GUID order and reports how each went.
+    /// PTP/IP sends the GUID reversed and reports how it went.
     pub fn connect(
         address: &str,
         on_pairing: impl FnOnce(),
-        on_attempt: Option<impl FnMut(String)>,
+        on_attempt: Option<impl FnOnce(String)>,
     ) -> Result<(Self, CameraInfo)> {
         let host = host(address);
         match ptpip::device_description(host).map_or(Mode::Ccapi, |description| mode(&description)) {

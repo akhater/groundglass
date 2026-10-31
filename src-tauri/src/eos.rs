@@ -49,10 +49,10 @@ struct Link {
 
 impl Camera {
     /// Pairs (the first time, the camera asks to confirm on its screen) and opens a session.
-    /// With `on_attempt`, tries each GUID order and reports how each went.
-    pub fn connect(host: &str, on_attempt: Option<impl FnMut(String)>) -> Result<(Self, CameraInfo)> {
+    /// With `on_attempt`, sends the GUID reversed and reports how it went.
+    pub fn connect(host: &str, on_attempt: Option<impl FnOnce(String)>) -> Result<(Self, CameraInfo)> {
         let session = match on_attempt {
-            Some(report) => Session::open_trying_orders(host, PAIRING_WAIT, report),
+            Some(report) => Session::open_reversed(host, PAIRING_WAIT, report),
             None => Session::open(host, PAIRING_WAIT),
         };
         let mut session = session.map_err(camera_error)?;

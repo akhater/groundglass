@@ -39,25 +39,25 @@ impl Connection {
 
 #[tauri::command(async)]
 /// `pairing` hears once when the camera is in EOS Utility mode, so the screen can say to press OK.
-/// With `guid_orders`, PTP/IP tries each GUID order and `attempts` hears how each went.
+/// With `reversed_guid`, PTP/IP sends the GUID reversed and `attempt` hears how it went.
 fn connect(
     address: String,
     pairing: Channel<bool>,
-    guid_orders: bool,
-    attempts: Channel<String>,
+    reversed_guid: bool,
+    attempt: Channel<String>,
     connection: State<Connection>,
 ) -> Result<CameraInfo, CameraError> {
     // Let go of the last camera first: over PTP the camera takes one session at a time.
     drop(connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
-    let on_attempt = |attempt: String| {
-        let _ = attempts.send(attempt);
+    let on_attempt = |outcome: String| {
+        let _ = attempt.send(outcome);
     };
     let (camera, info) = Camera::connect(
         &address,
         || {
             let _ = pairing.send(true);
         },
-        guid_orders.then_some(on_attempt),
+        reversed_guid.then_some(on_attempt),
     )?;
     *connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(camera));
     Ok(info)
