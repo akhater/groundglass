@@ -21,6 +21,8 @@ private const val ANSWER_WAIT_S = 5L
 /** Android asks the user first, the one time. */
 private const val BOND_WAIT_S = 60
 private const val BOND_POLL_MS = 200L
+/** What the camera sends on [WIFI_STATE] when its Wi-Fi goes off (recorded 2026-10-31). */
+private const val WIFI_OFF: Byte = 0x00
 private const val NOT_ANSWERING = "The camera stopped answering over Bluetooth: tap again."
 private const val NOT_PAIRED = "The phone and camera didn't pair: open the camera's pairing screen, then tap again."
 
@@ -132,6 +134,23 @@ class CameraGatt private constructor() {
             val change = changes.poll(end - System.nanoTime(), TimeUnit.NANOSECONDS) ?: return null
             if (change.uuid == null) throw Stop(NOT_ANSWERING)
             if (change.uuid == uuid && wanted(change.value)) return change.value
+        }
+    }
+
+    /**
+     * Waits for the camera to close the link itself, up to [seconds]. Returns
+     * what it did, for the report: when its Wi-Fi went off, and when the link closed.
+     */
+    fun awaitCameraClose(seconds: Long): String {
+        val start = System.nanoTime()
+        val end = start + TimeUnit.SECONDS.toNanos(seconds)
+        val since = { TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start) }
+        var wifiOff = "Wi-Fi off not seen"
+        while (true) {
+            val change = changes.poll(end - System.nanoTime(), TimeUnit.NANOSECONDS)
+                ?: return "$wifiOff, Bluetooth still up after $seconds s"
+            if (change.uuid == null) return "$wifiOff, camera closed Bluetooth at ${since()} s"
+            if (change.uuid == WIFI_STATE && change.value.firstOrNull() == WIFI_OFF) wifiOff = "Wi-Fi off at ${since()} s"
         }
     }
 

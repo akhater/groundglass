@@ -16,6 +16,8 @@ import kotlin.concurrent.thread
 
 private const val NEARBY = "nearby"
 private const val LOCATION = "location"
+/** Canon's app kept Bluetooth up and the camera closed it 27 s after its Wi-Fi went off (recorded 2026-10-31). */
+private const val HAND_BACK_WAIT_S = 45L
 
 @InvokeArg
 class ConnectArgs {
@@ -35,6 +37,10 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private val wifi = WifiJoin(activity)
     /** Held while connected: the recordings keep Bluetooth up during live view. */
     private var camera: CameraGatt? = null
+    /** The camera finishing up after a release; the next connect waits for it. */
+    private var handingBack: Thread? = null
+    /** What the camera did after the last release, for the next report. */
+    private var handedBack: String? = null
 
     /** Whether a tap can start now: the screen dims the button when it can't. */
     @Command
@@ -62,8 +68,23 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun release(invoke: Invoke) {
-        close()
+        handBack()
         invoke.resolve()
+    }
+
+    /**
+     * Back to the phone's usual network now, but Bluetooth stays up until the
+     * camera closes it. Dropped at once, the camera couldn't start its Wi-Fi
+     * for us again until its connection was ended in its menu (2026-11-01).
+     */
+    private fun handBack() {
+        wifi.release()
+        val leaving = camera ?: return
+        camera = null
+        handingBack = thread(name = "camera-hand-back") {
+            handedBack = leaving.awaitCameraClose(HAND_BACK_WAIT_S)
+            leaving.close()
+        }
     }
 
     private fun start(invoke: Invoke) {
@@ -86,6 +107,10 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
 
     /** Marks each step in [report] as it passes, so a failure shows how far it got. */
     private fun link(client: Client, report: JSObject) {
+        handingBack?.join()
+        handingBack = null
+        handedBack?.let { report.put("registration", it) }
+        handedBack = null
         close()
         blocker()?.let { throw Stop(it) }
         val bonded = CameraGatt.bondedCamera(activity)

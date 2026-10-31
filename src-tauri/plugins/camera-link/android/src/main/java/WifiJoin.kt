@@ -56,7 +56,7 @@ class WifiJoin(context: Context) {
         request = callback
         // Android answers by JOIN_WAIT_MS; the margin only makes sure this never hangs.
         if (joined.poll(JOIN_WAIT_MS + 5_000L, TimeUnit.MILLISECONDS) != true) {
-            throw Stop("The phone didn't join the camera's Wi-Fi: tap again, and choose Connect if it asks.")
+            throw Stop("The phone didn't join the camera's Wi-Fi: end the connection in the camera's Wi-Fi menu, then tap again, and choose Connect if the phone asks.")
         }
     }
 

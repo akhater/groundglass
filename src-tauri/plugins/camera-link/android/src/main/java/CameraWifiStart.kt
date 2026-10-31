@@ -15,7 +15,7 @@ private val SESSION_COMMAND = canon("00040002")
 private val SESSION_REPLY = canon("00040003")
 /** Write 0a: the camera's address comes back as a notification. Write 01: Wi-Fi starts. */
 private val WIFI_COMMAND = canon("00020002")
-private val WIFI_STATE = canon("00020003")
+val WIFI_STATE: UUID = canon("00020003")
 private val WIFI_NAME = canon("00020004")
 private val WIFI_DETAILS = canon("00020005")
 private val WIFI_PASSWORD = canon("00020006")
