@@ -12,11 +12,16 @@ export type CameraError =
   | { kind: "Refused"; detail: string }
   | { kind: "PairingRefused"; detail: number };
 
-/** `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera. */
-export function connect(address: string, onPairing: () => void) {
+/**
+ * `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera.
+ * With `onAttempt`, PTP/IP tries each GUID order and it hears how each went.
+ */
+export function connect(address: string, onPairing: () => void, onAttempt?: (attempt: string) => void) {
   const pairing = new Channel<boolean>();
   pairing.onmessage = onPairing;
-  return invoke<CameraInfo>("connect", { address, pairing });
+  const attempts = new Channel<string>();
+  if (onAttempt) attempts.onmessage = onAttempt;
+  return invoke<CameraInfo>("connect", { address, pairing, guidOrders: !!onAttempt, attempts });
 }
 
 /** Only the Android app can wake the camera over Bluetooth: elsewhere the button isn't there at all. */

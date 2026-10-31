@@ -11,8 +11,11 @@ export type OneTapReport = {
   detail: string | null;
 };
 
-/** What happened on the camera's Wi-Fi once joined. `refused`: the reason it gave for turning the pairing down. */
-export type Answer = { protocol?: string; refused?: number; live: boolean; error?: string; survey?: Survey };
+/**
+ * What happened on the camera's Wi-Fi once joined. `refused`: the reason it gave for turning the pairing down.
+ * `attempts`: how each GUID order went.
+ */
+export type Answer = { protocol?: string; refused?: number; live: boolean; error?: string; attempts?: string[]; survey?: Survey };
 
 /** The camera doesn't accept this client: only pairing again can change that. */
 const REJECTED_INITIATOR = 1;
@@ -27,9 +30,10 @@ function steps(reached: [string, boolean][]): ReportStep[] {
 }
 
 function detail(link: BluetoothLink, answer?: Answer): string | null {
-  const { error, survey } = answer ?? {};
+  const { error, attempts, survey } = answer ?? {};
   const parts = [
     link.registration,
+    ...(attempts ?? []),
     error,
     ...(survey?.services ?? []),
     survey?.ports.length ? `ports ${survey.ports.join(", ")}` : undefined,

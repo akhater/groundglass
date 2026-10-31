@@ -1,6 +1,7 @@
 // One-tap connect: Bluetooth wakes the camera and joins its Wi-Fi, then one
-// attempt over the normal path. Only live view's own loop retries, and that
-// starts only once this has worked: the camera mustn't get PTP/IP attempts in a row.
+// attempt over the normal path, for now once per GUID order. Only live view's own
+// loop retries, and that starts only once this has worked: the camera mustn't get
+// PTP/IP attempts in a row.
 import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { liveViewStopped } from "./liveView";
@@ -15,22 +16,25 @@ function rawError(error: unknown): string {
 
 async function reach(address: string, cameraDisplayOn: boolean, link: camera.BluetoothLink, onPairing: () => void) {
   let info: camera.CameraInfo;
+  const attempts: string[] = [];
   try {
-    info = await camera.connect(address, onPairing);
+    info = await camera.connect(address, onPairing, (attempt) => attempts.push(attempt));
   } catch (error) {
     const survey = await camera.cameraSurvey(address);
     // Only PTP/IP can refuse a pairing, and a refusal is an answer.
     const refused = camera.refusalReason(error) ?? undefined;
     const protocol = refused === undefined ? undefined : "PTP/IP";
-    return { info: null, report: oneTapReport(link, { protocol, refused, live: false, error: rawError(error), survey }) };
+    // The last attempt already says what `error` would.
+    const said = attempts.length > 0 ? undefined : rawError(error);
+    return { info: null, report: oneTapReport(link, { protocol, refused, live: false, error: said, attempts, survey }) };
   }
   try {
     await camera.startLiveView(cameraDisplayOn);
   } catch (error) {
     await camera.stopLiveView().catch(() => {}); // ends the PTP session
-    return { info: null, report: oneTapReport(link, { protocol: info.protocol, live: false, error: rawError(error) }) };
+    return { info: null, report: oneTapReport(link, { protocol: info.protocol, live: false, error: rawError(error), attempts }) };
   }
-  return { info, report: oneTapReport(link, { protocol: info.protocol, live: true }) };
+  return { info, report: oneTapReport(link, { protocol: info.protocol, live: true, attempts }) };
 }
 
 /** `onLive` runs with the session already open and live view started. */
