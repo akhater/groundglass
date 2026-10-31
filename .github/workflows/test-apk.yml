@@ -19,7 +19,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event.label.name == 'test-apk' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     env:
-      CONFIG: '{"identifier":"co.groundglass.app.test"}'
+      CONFIG: '{"identifier":"co.groundglass.app.test","productName":"Groundglass Test"}'
       APK: Groundglass_test_android_arm64.apk
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,6 @@ jobs:
           echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android init --ci --config "$CONFIG"
           cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
-          sed -i 's/>Groundglass</>Groundglass Test</g' src-tauri/gen/android/app/src/main/res/values/strings.xml
 
       - name: Build
         run: npx tauri android build --apk --target aarch64 --ci --config "$CONFIG"
