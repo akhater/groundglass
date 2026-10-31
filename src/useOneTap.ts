@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
 import { liveViewStopped } from "./liveView";
 import { oneTapReport, type OneTapReport } from "./oneTapReport";
-import { restLeft } from "./oneTapRest";
 
 /** The camera's own words: `describe` is written for an address typed by hand. */
 function rawError(error: unknown): string {
@@ -42,8 +41,6 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
   /** Off while Bluetooth or Wi-Fi is off: the button dims, and a tap says what to turn on. */
   const [ready, setReady] = useState(true);
   const linked = useRef(false);
-  /** When Stop was pressed: the camera needs a rest before its Wi-Fi can start again. */
-  const stoppedAt = useRef<number | null>(null);
 
   useEffect(() => {
     if (!camera.canConnectOverBluetooth) return;
@@ -71,12 +68,6 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     linked.current = false;
     try {
       await liveViewStopped(); // a lost or hidden session may still be closing
-      const rest = restLeft(stoppedAt.current, performance.now());
-      if (rest > 0) {
-        setHint("The camera needs a moment after Stop.");
-        await new Promise((resolve) => setTimeout(resolve, rest));
-        setHint("");
-      }
       const link = await camera.bluetoothConnect();
       if (!link.address) {
         setReport(oneTapReport(link));
@@ -100,7 +91,6 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
   /** After Stop: once live view has stopped, the phone's traffic goes back to normal. */
   const stop = () => {
     setReport(null);
-    if (linked.current) stoppedAt.current = performance.now();
     void liveViewStopped().then(release);
   };
 
