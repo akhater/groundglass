@@ -67,9 +67,10 @@ jobs:
           "$tools/apksigner" verify "$APK"
           rm "$RUNNER_TEMP/release.p12"
 
-      - uses: actions/upload-artifact@v4
+      # As a plain file, so a tap on the run's page downloads the APK with no zip to open.
+      - uses: actions/upload-artifact@v7
         with:
-          name: groundglass-test-apk
           path: ${{ env.APK }}
+          archive: false
           retention-days: 7
           if-no-files-found: error
