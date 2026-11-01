@@ -75,9 +75,9 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     setWorking(true);
     setHint("");
     setReport(null);
-    linked.current = false;
     try {
-      await liveViewStopped(); // a lost or hidden session may still be closing
+      await liveViewStopped(); // a lost or hidden session may still be closing, and Stop handing the camera back
+      linked.current = false;
       const link = await camera.bluetoothConnect();
       if (!link.address) {
         setReport(oneTapReport(link));

@@ -18,8 +18,8 @@ export type LiveViewOptions = {
   connected: () => camera.CameraInfo | null;
   /**
    * True when one-tap connect takes over from here: its camera's Wi-Fi may be
-   * off, and a refused Init ends it. `noPicture`: connected but no frame ever
-   * came, so reconnecting can't help.
+   * off, and a refused Init ends it. `noPicture`: connected but no frame came,
+   * so reconnecting can't help: reconnecting anyway would send Init after Init.
    */
   resume: (noPicture: boolean) => boolean;
   /** Read on every frame, so changing it needs no restart. Null = zebra off. */
@@ -61,6 +61,8 @@ export const liveViewStopped = () => previousRun;
 async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebraPercent, look, peaking, zoom, turns, onStatus, signal }: LiveViewOptions) {
   const renderer = createRenderer(canvas);
   let info = connected();
+  /** Whether this session has shown a frame. */
+  let pictured = false;
   while (!signal.aborted) {
     try {
       onStatus({ state: "connecting" });
@@ -83,7 +85,6 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
       let frames = 0;
       let since = performance.now();
       const started = since;
-      let pictured = false;
       while (!signal.aborted && cameraDisplayOn() === displayOn) {
         let jpeg: ArrayBuffer;
         try {
@@ -91,7 +92,7 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
         } catch (error) {
           // Busy (a photo being taken): live view resumes by itself.
           if (!camera.isBusy(error)) throw error;
-          if (!pictured && performance.now() - started > FIRST_FRAME_MS) throw NO_PICTURE;
+          if (!pictured && performance.now() - started > FIRST_FRAME_MS && resume(true)) throw NO_PICTURE;
           await sleep(BUSY_MS, signal);
           continue;
         }
@@ -109,12 +110,13 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
         }
       }
     } catch (error) {
-      if (signal.aborted) break;
+      if (signal.aborted || error === NO_PICTURE) break;
       if (camera.isRestartable(error)) continue; // restart live view at once
       info = null;
       // No picture while the camera is away: an old frame would pass for live.
       renderer.clear();
-      if (resume(error === NO_PICTURE)) break;
+      if (resume(!pictured)) break;
+      pictured = false;
       onStatus({ state: "lost", message: camera.describe(error) });
       await sleep(RETRY_MS, signal);
     }

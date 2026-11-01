@@ -66,7 +66,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         if (getPermissionState(permission()) == PermissionState.GRANTED) {
             start(invoke)
         } else {
-            invoke.resolve(report().put("failure", "Allow what Android asked for, then tap again."))
+            invoke.resolve(report().put("failure", "Allow Groundglass in the phone's app settings, then tap again."))
         }
     }
 
