@@ -1195,6 +1195,14 @@ button:disabled {
   gap: 12px;
 }
 
+/* Stays by the title: the new release keeps the far end. */
+.app-version {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The tap area reaches into the panel's margins: the title keeps its height. */
 .panel button.new-release {
   display: flex;
