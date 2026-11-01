@@ -87,6 +87,7 @@ impl Camera {
         let info = CameraInfo {
             model: text("productname"),
             firmware: text("firmwareversion"),
+            protocol: "CCAPI",
             zoom: false,
             depth_of_field_preview: false,
         };

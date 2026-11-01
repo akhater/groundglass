@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Mirrors `camera::CameraInfo`: `zoom` and `depthOfFieldPreview` say what live view can do (EOS Utility mode only). */
-export type CameraInfo = { model: string; firmware: string; zoom: boolean; depthOfFieldPreview: boolean };
+export type CameraInfo = { model: string; firmware: string; protocol: string; zoom: boolean; depthOfFieldPreview: boolean };
 
 /** Mirrors `camera::CameraError`. */
 export type CameraError =
@@ -10,7 +10,7 @@ export type CameraError =
   | { kind: "LiveViewOff" }
   | { kind: "Busy" }
   | { kind: "Refused"; detail: string }
-  | { kind: "PairingRefused" };
+  | { kind: "PairingRefused"; detail: number };
 
 /** `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera. */
 export function connect(address: string, onPairing: () => void) {
@@ -18,6 +18,34 @@ export function connect(address: string, onPairing: () => void) {
   pairing.onmessage = onPairing;
   return invoke<CameraInfo>("connect", { address, pairing });
 }
+
+/** Only the Android app can wake the camera over Bluetooth: elsewhere the button isn't there at all. */
+export const canConnectOverBluetooth = navigator.userAgent.includes("Android");
+/** Whether a Bluetooth connect can start now: Bluetooth and Wi-Fi are on. */
+export const bluetoothReady = () => invoke<boolean>("bluetooth_ready");
+
+/** Mirrors `tauri_plugin_camera_link::Link`. `failure` says what to do, in one sentence. */
+export type BluetoothLink = {
+  woke: boolean;
+  wifiStarted: boolean;
+  joined: boolean;
+  address: string | null;
+  /** How the camera took the app's id and name, write by write, when it refused one. */
+  registration: string | null;
+  failure: string | null;
+};
+/** Wakes the paired camera over Bluetooth and joins its Wi-Fi. */
+export const bluetoothConnect = () => invoke<BluetoothLink>("bluetooth_connect");
+/** Lets go of the camera's Wi-Fi and Bluetooth: the phone's traffic goes back to normal. */
+export const bluetoothRelease = () => invoke<void>("bluetooth_release");
+
+/** Keeps the phone's screen on while `on` (Android only). */
+export const keepAwake = (on: boolean) => invoke<void>("keep_awake", { on });
+
+/** Mirrors `survey::Survey`. */
+export type Survey = { services: string[]; ports: number[] };
+/** What the camera offers, for when `connect` found nothing it could open. */
+export const cameraSurvey = (address: string) => invoke<Survey>("camera_survey", { address });
 
 export const startLiveView = (cameraDisplayOn: boolean) =>
   invoke<void>("start_live_view", { cameraDisplayOn });
@@ -95,6 +123,12 @@ export const readLut = (name: string) => invoke<string>("read_lut", { name });
 export const newerRelease = (answer: string) => invoke<string | null>("newer_release", { answer });
 /** Opens the latest release's page in the system browser. */
 export const openReleasePage = () => invoke<void>("open_release_page");
+
+/** The reason the camera gave for turning a PTP/IP pairing down; null for any other error. */
+export function refusalReason(error: unknown): number | null {
+  const e = error as CameraError;
+  return e?.kind === "PairingRefused" ? e.detail : null;
+}
 
 /** The camera can't answer this instant (e.g. a photo is being taken). */
 export const isBusy = (error: unknown) => (error as CameraError)?.kind === "Busy";

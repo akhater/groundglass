@@ -1,7 +1,7 @@
 // The screen: the live picture, the aids drawn over it in one band, the camera
 // in the other, and the choices that open beside them.
 import { useEffect, useRef, useState } from "react";
-import type * as camera from "./camera";
+import * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { Setting, Tool } from "./Controls";
 import { FocusButton, SETTINGS, setByCamera, setByCameraNote, useExposure } from "./Exposure";
@@ -22,6 +22,7 @@ import { Tiles } from "./Tiles";
 import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
+import { useOneTap } from "./useOneTap";
 import { useNewRelease } from "./useNewRelease";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
@@ -56,6 +57,8 @@ export default function App() {
   const [address, setAddress] = useState(() => recent[0] ?? "");
   // On by default: with the camera's screen off, its own controls are locked too.
   const [cameraDisplayOn, setCameraDisplayOn] = useState(true);
+  const cameraDisplay = useRef(cameraDisplayOn);
+  cameraDisplay.current = cameraDisplayOn;
   const [running, setRunning] = useState(false);
   const [zebraOn, setZebraOn] = useState(true);
   const [zebraPercent, setZebraPercent] = useState(98);
@@ -74,7 +77,29 @@ export default function App() {
   const zoom = useRef<camera.Zoom>(1);
   /** Quarter turns clockwise that show the picture upright: portrait shooting, from the camera's roll. */
   const turnsRef = useRef(0);
-  const status = useLiveView({ canvas, running, address, cameraDisplayOn, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
+  /** The session one-tap connect opened, for live view to carry on from. */
+  const connected = useRef<camera.CameraInfo | null>(null);
+  const oneTap = useOneTap(cameraDisplayOn, (cameraAddress, info) => {
+    connected.current = info;
+    setAddress(cameraAddress);
+    setRunning(true);
+    setNote(`Connected over ${info.protocol}`);
+  });
+  // A monitor stays on while in use. Asleep, the phone ends live view and breaks
+  // a connect in progress, which then takes the camera's menu to clear.
+  const awake = running || oneTap.working;
+  useEffect(() => {
+    if (!awake) return;
+    void camera.keepAwake(true).catch(() => {});
+    return () => void camera.keepAwake(false).catch(() => {});
+  }, [awake]);
+  const resume = useRef<(noPicture: boolean) => boolean>(() => false);
+  resume.current = (noPicture) => {
+    if (!oneTap.resume(noPicture)) return false;
+    setRunning(false); // it goes live again through onLive, or reports what to do
+    return true;
+  };
+  const status = useLiveView({ canvas, running, address, connected, resume, cameraDisplayOn: cameraDisplay, zebraPercent: zebra, look: looks.cube, peaking, zoom, turns: turnsRef });
   const live = status?.state === "live";
   const magnify = useMagnify(live, zoom);
   const exposure = useExposure(live);
@@ -308,15 +333,18 @@ export default function App() {
             onCameraDisplay={setCameraDisplayOn}
             status={status}
             newRelease={newRelease}
+            oneTap={oneTap}
             onStart={() => {
               const used = address.trim();
               setAddress(used);
               setRecent(rememberFirst(ADDRESSES_KEY, recent, used, ADDRESSES_KEPT));
+              oneTap.hideReport();
               setRunning(true);
             }}
             onStop={() => {
               closeAll();
               setRunning(false);
+              oneTap.stop();
             }}
           />
         )}
