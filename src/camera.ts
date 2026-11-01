@@ -1,4 +1,5 @@
 // The Rust commands in src-tauri/src/lib.rs, typed.
+import { getVersion } from "@tauri-apps/api/app";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Mirrors `camera::CameraInfo`: `zoom` and `depthOfFieldPreview` say what live view can do (EOS Utility mode only). */
@@ -121,6 +122,8 @@ export const readLut = (name: string) => invoke<string>("read_lut", { name });
 
 /** What GitHub answered about the latest release: its version if newer than this app, else null. Rejects if it isn't a release. */
 export const newerRelease = (answer: string) => invoke<string | null>("newer_release", { answer });
+/** The version of this build. */
+export const appVersion = getVersion;
 /** Opens the latest release's page in the system browser. */
 export const openReleasePage = () => invoke<void>("open_release_page");
 

@@ -15,6 +15,8 @@ type Props = {
   cameraDisplayOn: boolean;
   onCameraDisplay: (on: boolean) => void;
   status: Status | null;
+  /** The version of this build. */
+  appVersion: string | null;
   /** A newer published version, opening its release page. */
   newRelease: string | null;
   /** One-tap connect: can it start, working, what to do on the camera meanwhile, and how the last one went. */
@@ -73,6 +75,7 @@ export function Connection(props: Props) {
         <>
           <div className="connect-title">
             <h1>Groundglass</h1>
+            {props.appVersion && <span className="app-version">{props.appVersion}</span>}
             {props.newRelease && (
               <button
                 type="button"

@@ -23,6 +23,7 @@ import { useBattery } from "./useBattery";
 import { useLiveDetails } from "./useLiveDetails";
 import { useLiveView } from "./useLiveView";
 import { useOneTap } from "./useOneTap";
+import { useAppVersion } from "./useAppVersion";
 import { useNewRelease } from "./useNewRelease";
 import { useTapFocus } from "./useTapFocus";
 import { lookLabel, useLooks } from "./useLooks";
@@ -121,6 +122,7 @@ export default function App() {
   const turns = details?.turns ?? 0;
   turnsRef.current = turns;
   const battery = useBattery(live);
+  const appVersion = useAppVersion();
   const newRelease = useNewRelease();
   const tapFocus = useTapFocus(canvas);
   /** Large screens only, where the bands sit over the picture: a band tucked away. */
@@ -332,6 +334,7 @@ export default function App() {
             cameraDisplayOn={cameraDisplayOn}
             onCameraDisplay={setCameraDisplayOn}
             status={status}
+            appVersion={appVersion}
             newRelease={newRelease}
             oneTap={oneTap}
             onStart={() => {

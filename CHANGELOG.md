@@ -4,6 +4,10 @@ Newest first.
 
 ## 26.44.6 - unreleased
 
+### Added
+
+- **Version number:** the running version shows beside the title before Start.
+
 ## 26.44.5 - 2026-11-01
 
 ### Added
