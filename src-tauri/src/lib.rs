@@ -67,6 +67,12 @@ fn bluetooth_release(link: State<CameraLink<Wry>>) -> Result<(), String> {
     link.release()
 }
 
+/// Keeps the phone's screen on while `on` (Android only).
+#[tauri::command(async)]
+fn keep_awake(on: bool, link: State<CameraLink<Wry>>) -> Result<(), String> {
+    link.keep_awake(on)
+}
+
 /// What the camera offers, for when `connect` found nothing it could open.
 #[tauri::command(async)]
 fn camera_survey(address: String) -> Survey {
@@ -201,6 +207,7 @@ pub fn run() {
             bluetooth_ready,
             bluetooth_connect,
             bluetooth_release,
+            keep_awake,
             camera_survey,
             start_live_view,
             stop_live_view,

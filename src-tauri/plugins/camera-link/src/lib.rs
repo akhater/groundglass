@@ -33,6 +33,12 @@ struct ConnectArguments<'a> {
 }
 
 #[cfg(target_os = "android")]
+#[derive(Serialize)]
+struct KeepAwakeArguments {
+    on: bool,
+}
+
+#[cfg(target_os = "android")]
 #[derive(Deserialize)]
 struct Readiness {
     ready: bool,
@@ -61,6 +67,11 @@ impl<R: Runtime> CameraLink<R> {
     pub fn release(&self) -> Result<(), String> {
         self.0.run_mobile_plugin("release", NoArguments {}).map_err(|e| e.to_string())
     }
+
+    /// Keeps the phone's screen on while `on`.
+    pub fn keep_awake(&self, on: bool) -> Result<(), String> {
+        self.0.run_mobile_plugin("keepAwake", KeepAwakeArguments { on }).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -77,6 +88,10 @@ impl<R: Runtime> CameraLink<R> {
     }
 
     pub fn release(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn keep_awake(&self, _on: bool) -> Result<(), String> {
         Ok(())
     }
 }

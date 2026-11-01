@@ -39,6 +39,9 @@ export const bluetoothConnect = () => invoke<BluetoothLink>("bluetooth_connect")
 /** Lets go of the camera's Wi-Fi and Bluetooth: the phone's traffic goes back to normal. */
 export const bluetoothRelease = () => invoke<void>("bluetooth_release");
 
+/** Keeps the phone's screen on while `on` (Android only). */
+export const keepAwake = (on: boolean) => invoke<void>("keep_awake", { on });
+
 /** Mirrors `survey::Survey`. */
 export type Survey = { services: string[]; ports: number[] };
 /** What the camera offers, for when `connect` found nothing it could open. */

@@ -1,6 +1,7 @@
 // Runs live view while it is started and the app is on screen, so the camera's
 // screen comes back on whenever Groundglass is in the background.
 import { useEffect, useState, type RefObject } from "react";
+import { keepAwake } from "./camera";
 import type * as camera from "./camera";
 import type { Cube } from "./cube";
 import { runLiveView, type Status } from "./liveView";
@@ -33,6 +34,13 @@ export function useLiveView({ canvas, running, address, connected, resume, camer
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
+
+  // A monitor stays on while it is in use: the screen going off would end live view.
+  useEffect(() => {
+    if (!running) return;
+    void keepAwake(true).catch(() => {});
+    return () => void keepAwake(false).catch(() => {});
+  }, [running]);
 
   useEffect(() => {
     if (!running || !visible || !canvas.current) return;

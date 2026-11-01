@@ -55,6 +55,16 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
     };
   }, []);
 
+  // Live view ends when the app hides: hand the camera back as Stop does, so
+  // coming back finds it ready. `linked` stays set, for `resume` to reconnect.
+  useEffect(() => {
+    const handBack = () => {
+      if (document.hidden && linked.current) void liveViewStopped().then(() => camera.bluetoothRelease().catch(() => {}));
+    };
+    document.addEventListener("visibilitychange", handBack);
+    return () => document.removeEventListener("visibilitychange", handBack);
+  }, []);
+
   const release = () => {
     if (!linked.current) return Promise.resolve();
     linked.current = false;

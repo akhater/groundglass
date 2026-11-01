@@ -3,6 +3,7 @@ package co.groundglass.cameralink
 import android.Manifest
 import android.app.Activity
 import android.os.Build
+import android.view.WindowManager
 import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -23,6 +24,11 @@ private const val HAND_BACK_WAIT_S = 45L
 class ConnectArgs {
     lateinit var clientId: IntArray
     lateinit var clientName: String
+}
+
+@InvokeArg
+class KeepAwakeArgs {
+    var on: Boolean = false
 }
 
 /** A step that can't go on; [sentence] tells the user what to do. */
@@ -69,6 +75,16 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun release(invoke: Invoke) {
         handBack()
+        invoke.resolve()
+    }
+
+    @Command
+    fun keepAwake(invoke: Invoke) {
+        val on = invoke.parseArgs(KeepAwakeArgs::class.java).on
+        activity.runOnUiThread {
+            if (on) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         invoke.resolve()
     }
 
