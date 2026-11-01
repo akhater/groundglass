@@ -2,7 +2,7 @@
 
 Newest first.
 
-## 26.44.5 - unreleased
+## 26.44.5 - 2026-11-01
 
 ### Added
 
@@ -33,6 +33,8 @@ Newest first.
 
 ### Fixed
 
+- **ISO in portrait:** long values such as 102400 are shown in full instead of
+  being cut off.
 - ETTR no longer stops as interrupted when a setting's reading arrives late on
   a slow connection, and no longer ends on a brighter step it can't check.
 
