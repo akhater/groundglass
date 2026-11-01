@@ -75,9 +75,7 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
     let mut expected: Option<(Vec<String>, Vec<String>)> = None;
     // The last round only waited for a reading.
     let mut behind = false;
-    // Where the free settings began, for `spread`.
-    let mut starts: Option<Vec<i32>> = None;
-    // The settings before the first change, and the histogram and brightness before the last one.
+    // The settings before the first change, and the histogram and step of the last one.
     let mut start: Option<Vec<(ExposureSetting, String)>> = None;
     let mut last: Option<(Vec<Vec<u32>>, i32)> = None;
     for round in 1..=ROUNDS {
@@ -117,14 +115,9 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         if dials.is_empty() {
             return Ok(Outcome::Unavailable);
         }
-        let starts = starts.get_or_insert_with(|| dials.iter().map(|dial: &Dial| dial.start).collect());
-        dials.iter_mut().zip(starts.iter()).for_each(|(dial, start)| dial.start = *start);
-        let at = dials.iter().map(|dial| dial.at).sum();
         let histogram = camera.histogram()?;
-        // A trade that kept the exposure has nothing to show.
-        if let Some((before, from)) = &last
-            && at != *from
-            && !followed(before, &histogram, at - from)
+        if let Some((before, by)) = &last
+            && !followed(before, &histogram, *by)
         {
             let now = |setting: &ExposureSetting| states.iter().find(|(s, _)| s == setting).map(|(_, state)| &state.value);
             for (setting, value) in start.iter().flatten().filter(|(setting, value)| now(setting) != Some(value)) {
@@ -135,6 +128,7 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         let Some(reading) = reading(&histogram) else {
             return Ok(Outcome::Unavailable);
         };
+        let at = dials.iter().map(|dial| dial.at).sum();
         let Some(target) = search.next(at, &reading) else {
             return Ok(Outcome::Done);
         };
@@ -163,7 +157,7 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
             return Ok(Outcome::Done);
         }
         expected = Some((next, values));
-        last = Some((histogram, at));
+        last = Some((histogram, target - at));
         camera.settle();
     }
     // A reading still behind after every round is no longer lag.
@@ -203,8 +197,6 @@ mod tests {
         lag: Cell<usize>,
         behind: Cell<usize>,
         before: RefCell<[(ExposureSetting, String, Vec<String>); 3]>,
-        /// The set with this number fails.
-        fails_at: Cell<Option<usize>>,
     }
 
     fn list(choices: &[&str]) -> Vec<String> {
@@ -229,7 +221,6 @@ mod tests {
             frozen: Cell::new(None),
             lag: Cell::new(0),
             behind: Cell::new(0),
-            fails_at: Cell::new(None),
         }
     }
 
@@ -262,9 +253,6 @@ mod tests {
 
         fn set(&self, setting: ExposureSetting, value: &str) -> Result<()> {
             self.sets.set(self.sets.get() + 1);
-            if self.fails_at.get() == Some(self.sets.get()) {
-                return Err(CameraError::Refused("no".into()));
-            }
             if self.lag.get() > 0 && self.behind.get() == 0 {
                 *self.before.borrow_mut() = self.values.borrow().clone();
                 self.behind.set(self.lag.get());
@@ -295,84 +283,38 @@ mod tests {
         }
     }
 
-    fn settings(camera: &Scene) -> (String, String, String) {
-        (camera.value(Iso), camera.value(Av), camera.value(Tv))
-    }
-
-    fn expect(iso: &str, av: &str, tv: &str) -> (String, String, String) {
-        (iso.into(), av.into(), tv.into())
-    }
-
     #[test]
-    fn it_ends_on_the_lowest_iso_the_aperture_can_make_up() {
-        // ISO 800 + f5.6 + 1/250: 9 - 15 - 24 = -30, already at the edge.
-        let camera = scene("800", "f5.6", "1/250", -30);
-        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("200", "f2.8", "1/250"));
-    }
-
-    #[test]
-    fn with_room_left_the_shutter_holds_while_the_aperture_opens() {
-        // A stop of room: ISO comes down too, with the aperture's other stop.
-        let camera = scene("800", "f5.6", "1/250", -27);
-        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("400", "f2.8", "1/250"));
-    }
-
-    #[test]
-    fn past_the_aperture_the_shutter_is_the_only_way_left() {
-        // Two stops of aperture and two thirds of shutter; ISO doesn't come down for it.
-        let camera = scene("800", "f5.6", "1/250", -22);
-        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("800", "f2.8", "1/160"));
-    }
-
-    #[test]
-    fn a_pin_wins_and_the_shutter_never_slows_for_iso() {
-        // The aperture pinned: only the shutter could make up a lower ISO.
-        let camera = scene("800", "f5.6", "1/250", -30);
-        assert_eq!(run(&camera, &[Av]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("800", "f5.6", "1/250"));
-        let camera = scene("800", "f5.6", "1/250", -30);
-        assert_eq!(run(&camera, &[Iso]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("800", "f5.6", "1/250"));
-    }
-
-    #[test]
-    fn iso_50_stays_only_when_pinned() {
-        // ISO 50 + f5.6 + 1/250: -3 - 15 - 24 = -42, at the edge.
-        let camera = with_l(scene("50", "f5.6", "1/250", -42));
-        assert_eq!(run(&camera, &[Iso]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("50", "f5.6", "1/250"));
-        let camera = with_l(scene("50", "f5.6", "1/250", -42));
-        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("100", "f5.6", "1/500"));
-    }
-
-    #[test]
-    fn too_bright_stops_at_100_with_50_on_offer() {
+    fn iso_50_is_the_last_resort_when_still_clipped() {
+        // ISO 800 + f2.8 + 1/30: 9 - 9 - 15 = -15; ISO 100 gives -24, ISO 50 gives -27.
+        let camera = with_l(scene("800", "f2.8", "1/30", -24));
+        assert_eq!(run(&camera, &[Av, Tv]), Ok(Outcome::Done));
+        assert_eq!(camera.value(Iso), "100");
+        let camera = with_l(scene("800", "f2.8", "1/30", -27));
+        assert_eq!(run(&camera, &[Av, Tv]), Ok(Outcome::Done));
+        assert_eq!(camera.value(Iso), "50");
+        // Clipped at 50 too.
         let camera = with_l(scene("800", "f2.8", "1/30", -30));
         assert_eq!(run(&camera, &[Av, Tv]), Ok(Outcome::Limited(vec![Iso])));
-        assert_eq!(camera.value(Iso), "100");
-    }
-
-    #[test]
-    fn a_trade_that_keeps_the_exposure_is_no_failure_to_follow() {
-        // Whole stops of shutter and aperture: a third more can't be had, the trade still can.
-        let camera = scene("800", "f4.0", "1/250", -27);
-        camera.values.borrow_mut()[1].2 = list(&["f2.8", "f4.0"]);
-        camera.values.borrow_mut()[2].2 = list(&["1/1000", "1/500", "1/250", "1/125"]);
+        assert_eq!(camera.value(Iso), "50");
+        // Free, but at the end of their range: 0 - 18 - 30 = -48, ISO 50 gives -51.
+        let camera = with_l(scene("100", "f8.0", "1/1000", -51));
         assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
-        assert_eq!(settings(&camera), expect("400", "f2.8", "1/250"));
+        assert_eq!(camera.value(Iso), "50");
     }
 
     #[test]
-    fn a_trade_cut_short_is_darker_not_brighter() {
-        let camera = scene("800", "f5.6", "1/250", -30);
-        let before = camera.brightness();
-        camera.fails_at.set(Some(2));
-        assert!(run(&camera, &[]).is_err());
-        assert!(camera.brightness() < before);
+    fn with_a_shutter_left_to_move_iso_stays_at_100() {
+        // ISO 400 + f5.6 + 1/250: 6 - 15 - 24 = -33, clipping above -42.
+        let camera = with_l(scene("400", "f5.6", "1/250", -42));
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!((camera.value(Iso), camera.value(Tv)), ("100".to_string(), "1/500".to_string()));
+    }
+
+    #[test]
+    fn a_pinned_iso_never_goes_to_50() {
+        let camera = with_l(scene("100", "f8.0", "1/1000", -51));
+        assert_eq!(run(&camera, &[Iso]), Ok(Outcome::Limited(vec![Tv, Av])));
+        assert_eq!(camera.value(Iso), "100");
     }
 
     #[test]

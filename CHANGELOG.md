@@ -17,10 +17,9 @@ Newest first.
 
 ### Changed
 
-- **ETTR favours the base ISO:** it never picks ISO 50 (L), and with ISO free
-  it ends on the lowest ISO the aperture can make up for, at the same exposure.
-  The shutter keeps its speed unless only a slower one, or a higher ISO, can
-  still reach the exposure. A pinned setting never moves.
+- **ETTR stops at ISO 100 going darker:** ISO 50 (L) is a digital setting, not
+  the base ISO, so ETTR uses it only when the picture would still clip with
+  nothing else left to move. A pinned setting never moves.
 
 ### Fixed
 
