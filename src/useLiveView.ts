@@ -1,7 +1,6 @@
 // Runs live view while it is started and the app is on screen, so the camera's
 // screen comes back on whenever Groundglass is in the background.
 import { useEffect, useState, type RefObject } from "react";
-import { keepAwake } from "./camera";
 import type * as camera from "./camera";
 import type { Cube } from "./cube";
 import { runLiveView, type Status } from "./liveView";
@@ -13,8 +12,8 @@ type Options = {
   address: string;
   /** A session already open, used by the next run and cleared. */
   connected: RefObject<camera.CameraInfo | null>;
-  /** True when one-tap connect takes over from a run that has no session. */
-  resume: RefObject<() => boolean>;
+  /** True when one-tap connect takes over from a run with no session, or with `noPicture` from one with no frames. */
+  resume: RefObject<(noPicture: boolean) => boolean>;
   /** Read on every frame, so changing them needs no restart. */
   cameraDisplayOn: RefObject<boolean>;
   zebraPercent: RefObject<number | null>;
@@ -35,13 +34,6 @@ export function useLiveView({ canvas, running, address, connected, resume, camer
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
 
-  // A monitor stays on while it is in use: the screen going off would end live view.
-  useEffect(() => {
-    if (!running) return;
-    void keepAwake(true).catch(() => {});
-    return () => void keepAwake(false).catch(() => {});
-  }, [running]);
-
   useEffect(() => {
     if (!running || !visible || !canvas.current) return;
     const abort = new AbortController();
@@ -55,7 +47,7 @@ export function useLiveView({ canvas, running, address, connected, resume, camer
         connected.current = null;
         return info;
       },
-      resume: () => resume.current(),
+      resume: (noPicture) => resume.current(noPicture),
       zebraPercent: () => zebraPercent.current,
       look: () => look.current,
       peaking: () => peaking.current,

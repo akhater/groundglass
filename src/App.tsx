@@ -1,7 +1,7 @@
 // The screen: the live picture, the aids drawn over it in one band, the camera
 // in the other, and the choices that open beside them.
 import { useEffect, useRef, useState } from "react";
-import type * as camera from "./camera";
+import * as camera from "./camera";
 import { Connection, StatusBadge } from "./Connection";
 import { Setting, Tool } from "./Controls";
 import { FocusButton, SETTINGS, setByCamera, setByCameraNote, useExposure } from "./Exposure";
@@ -85,9 +85,17 @@ export default function App() {
     setRunning(true);
     setNote(`Connected over ${info.protocol}`);
   });
-  const resume = useRef<() => boolean>(() => false);
-  resume.current = () => {
-    if (!oneTap.resume()) return false;
+  // A monitor stays on while in use. Asleep, the phone ends live view and breaks
+  // a connect in progress, which then takes the camera's menu to clear.
+  const awake = running || oneTap.working;
+  useEffect(() => {
+    if (!awake) return;
+    void camera.keepAwake(true).catch(() => {});
+    return () => void camera.keepAwake(false).catch(() => {});
+  }, [awake]);
+  const resume = useRef<(noPicture: boolean) => boolean>(() => false);
+  resume.current = (noPicture) => {
+    if (!oneTap.resume(noPicture)) return false;
     setRunning(false); // it goes live again through onLive, or reports what to do
     return true;
   };

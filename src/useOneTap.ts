@@ -3,7 +3,7 @@
 // starts only once this has worked: the camera mustn't get PTP/IP attempts in a row.
 import { useEffect, useRef, useState } from "react";
 import * as camera from "./camera";
-import { liveViewStopped } from "./liveView";
+import { liveViewStopped, NO_PICTURE } from "./liveView";
 import { oneTapReport, type OneTapReport } from "./oneTapReport";
 
 /** The camera's own words: `describe` is written for an address typed by hand. */
@@ -107,11 +107,17 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
   /**
    * A one-tap session lost, or the app back from hiding: the whole tap again,
    * so the camera's Wi-Fi starts and the phone joins it anew, then one Init.
-   * If that fails the report says what to do. False if this isn't such a session.
+   * If that fails the report says what to do. With `noPicture` reconnecting
+   * can't help: it lets go and says so. False if this isn't such a session.
    */
-  const resume = () => {
+  const resume = (noPicture: boolean) => {
     if (!linked.current) return false;
-    void start();
+    if (noPicture) {
+      setReport({ steps: [], message: NO_PICTURE, detail: null });
+      void liveViewStopped().then(release);
+    } else {
+      void start();
+    }
     return true;
   };
 

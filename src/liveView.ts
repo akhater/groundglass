@@ -16,8 +16,12 @@ export type LiveViewOptions = {
   cameraDisplayOn: () => boolean;
   /** A session one-tap connect already opened, taken once: reopening one at once can wedge the camera. */
   connected: () => camera.CameraInfo | null;
-  /** True when one-tap connect takes over from here: its camera's Wi-Fi may be off, and a refused Init ends it. */
-  resume: () => boolean;
+  /**
+   * True when one-tap connect takes over from here: its camera's Wi-Fi may be
+   * off, and a refused Init ends it. `noPicture`: connected but no frame ever
+   * came, so reconnecting can't help.
+   */
+  resume: (noPicture: boolean) => boolean;
   /** Read on every frame, so changing it needs no restart. Null = zebra off. */
   zebraPercent: () => number | null;
   /** Read on every frame too. Null = the camera's picture as it is. */
@@ -37,6 +41,9 @@ const RETRY_MS = 2000;
 const PAIRING_HINT_MS = 2000;
 /** While the camera takes a photo it sends no frames: ask again this often. */
 const BUSY_MS = 100;
+/** With its power switch off the camera connects over Wi-Fi but sends no frames, without ever saying so (2026-11-01). */
+const FIRST_FRAME_MS = 15_000;
+export const NO_PICTURE = "The camera isn't sending a picture: turn its power switch on, then tap again.";
 
 /** The previous run, so a new one starts only after the old one has stopped the camera. */
 let previousRun: Promise<void> = Promise.resolve();
@@ -58,7 +65,7 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
     try {
       onStatus({ state: "connecting" });
       if (!info) {
-        if (resume()) break;
+        if (resume(false)) break;
         let hint = 0;
         let done = false;
         const showHint = () => onStatus({ state: "connecting", hint: "First time? Press OK on the camera to pair." });
@@ -75,6 +82,8 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
       await camera.startLiveView(displayOn);
       let frames = 0;
       let since = performance.now();
+      const started = since;
+      let pictured = false;
       while (!signal.aborted && cameraDisplayOn() === displayOn) {
         let jpeg: ArrayBuffer;
         try {
@@ -82,9 +91,11 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
         } catch (error) {
           // Busy (a photo being taken): live view resumes by itself.
           if (!camera.isBusy(error)) throw error;
+          if (!pictured && performance.now() - started > FIRST_FRAME_MS) throw NO_PICTURE;
           await sleep(BUSY_MS, signal);
           continue;
         }
+        pictured = true;
         const decoded = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
         const image = zoom() === 10 ? await centralHalf(decoded) : decoded;
         renderer.draw(image, zebraPercent(), look(), peaking(), turns());
@@ -103,7 +114,7 @@ async function loop({ canvas, address, cameraDisplayOn, connected, resume, zebra
       info = null;
       // No picture while the camera is away: an old frame would pass for live.
       renderer.clear();
-      if (resume()) break;
+      if (resume(error === NO_PICTURE)) break;
       onStatus({ state: "lost", message: camera.describe(error) });
       await sleep(RETRY_MS, signal);
     }
