@@ -148,24 +148,37 @@ pub struct Dial {
     pub setting: ExposureSetting,
     pub at: i32,
     choices: Vec<(i32, String)>,
+    /// ISO below its base: for when nothing else is left to move.
+    below_base: Vec<(i32, String)>,
 }
+
+/// ISO 100 in thirds. 50 (L) is a digital setting, not the base ISO.
+const BASE_ISO: i32 = 0;
 
 impl Dial {
     /// None when the value has no brightness (auto) or the camera offers no choice
     /// (the shooting mode sets it).
     pub fn new(setting: ExposureSetting, value: &str, choices: &[String]) -> Option<Self> {
         let at = thirds(setting, value)?;
-        let choices: Vec<_> =
-            choices.iter().filter_map(|choice| Some((thirds(setting, choice)?, choice.clone()))).collect();
-        (!choices.is_empty()).then_some(Self { setting, at, choices })
+        let (choices, below_base): (Vec<_>, Vec<_>) = choices
+            .iter()
+            .filter_map(|choice| Some((thirds(setting, choice)?, choice.clone())))
+            .partition(|(thirds, _)| setting != ExposureSetting::Iso || *thirds >= BASE_ISO);
+        (!choices.is_empty()).then_some(Self { setting, at, choices, below_base })
     }
 
     /// The choice from here toward `want` that doesn't pass it, or the end of the range
     /// when darker is asked past it. None when that is no move toward `want`.
     fn toward(&self, want: i32) -> Option<&(i32, String)> {
         let choice = self.choices.iter().filter(|(thirds, _)| *thirds <= want).max_by_key(|(thirds, _)| *thirds);
-        let choice = choice.or_else(|| self.choices.iter().min_by_key(|(thirds, _)| *thirds))?;
+        let end = self.choices.iter().min_by_key(|(thirds, _)| *thirds).filter(|_| want < self.at);
+        let choice = choice.or(end)?;
         ((choice.0 - self.at).signum() == (want - self.at).signum() && choice.0 != self.at).then_some(choice)
+    }
+
+    /// The ISO just below the base. None when there is none, or it is already there.
+    fn last_resort(&self) -> Option<&(i32, String)> {
+        self.below_base.iter().max_by_key(|(thirds, _)| *thirds).filter(|(thirds, _)| *thirds < self.at)
     }
 
     /// Already as far as it goes in the direction of `by`.
@@ -183,8 +196,9 @@ pub struct Move {
 }
 
 /// Spreads `by` thirds over `dials`. Brighter: shutter, then aperture, ISO last
-/// (it adds noise). Darker: ISO first, then shutter, then aperture. A step the
-/// camera's choices can't match lands on the darker side.
+/// (it adds noise). Darker: ISO first, down to 100, then shutter, then aperture,
+/// and ISO below 100 once nothing else is left. A step the camera's choices can't
+/// match lands on the darker side.
 pub fn spread(dials: &[Dial], by: i32) -> Move {
     use ExposureSetting::{Av, Iso, Tv};
     let order = if by > 0 { [Tv, Av, Iso] } else { [Iso, Tv, Av] };
@@ -192,7 +206,7 @@ pub fn spread(dials: &[Dial], by: i32) -> Move {
     let mut left = by;
     let mut next = Move::default();
     let mut ends = Vec::new();
-    for dial in dials {
+    for dial in &dials {
         let mut at = dial.at;
         if left.signum() == by.signum()
             && let Some((thirds, label)) = dial.toward(dial.at + left)
@@ -202,6 +216,14 @@ pub fn spread(dials: &[Dial], by: i32) -> Move {
             at = *thirds;
         }
         ends.push((dial.setting, dial.at_end(at, by)));
+    }
+    if left < 0
+        && let Some(iso) = dials.iter().find(|dial| dial.setting == Iso)
+        && let Some((thirds, label)) = iso.last_resort()
+    {
+        next.changes.retain(|(setting, _)| *setting != Iso);
+        next.changes.insert(0, (Iso, label.clone()));
+        left -= thirds - iso.at.min(BASE_ISO);
     }
     if left != 0 && left.signum() == by.signum() {
         next.stuck = ends.into_iter().filter_map(|(setting, end)| end.then_some(setting)).collect();
@@ -222,9 +244,44 @@ mod tests {
     const SHUTTER: &[&str] = &["bulb", "1/250", "1/200", "1/160", "1/125", "1/100", "1/80", "1/60", "1/50"];
     const ISO: &[&str] = &["auto", "100", "125", "160", "200", "250", "320", "400"];
     const APERTURE: &[&str] = &["f2.8", "f3.2", "f3.5", "f4.0", "f4.5", "f5.0", "f5.6"];
+    const ISO_WITH_L: &[&str] = &["auto", "50", "100", "125", "160", "200", "400"];
 
     fn changes(changes: &[(ExposureSetting, &str)]) -> Vec<(ExposureSetting, String)> {
         changes.iter().map(|&(setting, value)| (setting, value.to_string())).collect()
+    }
+
+    #[test]
+    fn darker_stops_at_iso_100_while_anything_else_can_move() {
+        let dials = [dial(Iso, "160", ISO_WITH_L), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, -2), Move { changes: changes(&[(Iso, "100")]), stuck: vec![] });
+        assert_eq!(spread(&dials, -5), Move { changes: changes(&[(Iso, "100"), (Tv, "1/250")]), stuck: vec![] });
+        // The shutter at its fastest: the aperture still comes before 50.
+        let dials = [dial(Iso, "160", ISO_WITH_L), dial(Av, "f4.0", APERTURE), dial(Tv, "1/250", SHUTTER)];
+        assert_eq!(spread(&dials, -5), Move { changes: changes(&[(Iso, "100"), (Av, "f5.6")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn iso_50_is_the_last_resort() {
+        // The shutter at its fastest and the aperture pinned.
+        let dials = [dial(Iso, "160", ISO_WITH_L), dial(Tv, "1/250", SHUTTER)];
+        assert_eq!(spread(&dials, -5), Move { changes: changes(&[(Iso, "50")]), stuck: vec![] });
+        // A third more than 50 can give.
+        assert_eq!(spread(&dials, -6), Move { changes: changes(&[(Iso, "50")]), stuck: vec![Iso, Tv] });
+        // The shutter gives what it has left first.
+        let dials = [dial(Iso, "100", ISO_WITH_L), dial(Tv, "1/200", SHUTTER)];
+        assert_eq!(spread(&dials, -4), Move { changes: changes(&[(Iso, "50"), (Tv, "1/250")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn from_50_brighter_keeps_the_usual_order() {
+        let dials = [dial(Iso, "50", ISO_WITH_L), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, 2), Move { changes: changes(&[(Tv, "1/80")]), stuck: vec![] });
+        // ISO alone: a third more can't be had without passing it, a stop can.
+        let dials = [dial(Iso, "50", ISO_WITH_L)];
+        assert_eq!(spread(&dials, 1), Move::default());
+        assert_eq!(spread(&dials, 3), Move { changes: changes(&[(Iso, "100")]), stuck: vec![] });
+        // Nothing below it.
+        assert_eq!(spread(&dials, -1), Move { changes: vec![], stuck: vec![Iso] });
     }
 
     #[test]

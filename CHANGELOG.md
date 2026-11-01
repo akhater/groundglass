@@ -25,6 +25,17 @@ Newest first.
 - **Keep the camera's screen on** now changes during live view without
   reconnecting.
 
+### Changed
+
+- **ETTR stops at ISO 100 going darker:** ISO 50 (L) is a digital setting, not
+  the base ISO, so ETTR uses it only when the picture would still clip with
+  nothing else left to move. A pinned setting never moves.
+
+### Fixed
+
+- ETTR no longer stops as interrupted when a setting's reading arrives late on
+  a slow connection, and no longer ends on a brighter step it can't check.
+
 ## 26.44.4 - 2026-10-29
 
 ### Added
