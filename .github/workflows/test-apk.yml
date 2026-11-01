@@ -47,6 +47,8 @@ jobs:
           echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android init --ci --config "$CONFIG"
           cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
+          # Test builds are downloaded often: compressed libraries take the APK from about 14 MB to 5.
+          echo 'android { packaging { jniLibs { useLegacyPackaging = true } } }' >> src-tauri/gen/android/app/build.gradle.kts
 
       - name: Build
         run: npx tauri android build --apk --target aarch64 --ci --config "$CONFIG"
