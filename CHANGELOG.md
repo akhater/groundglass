@@ -15,6 +15,18 @@ Newest first.
   almost all colours stay within one or two steps out of 255. A PNG that isn't
   a HaldCLUT is refused with the reason.
 
+### Changed
+
+- **ETTR favours the base ISO:** it never picks ISO 50 (L), and with ISO free
+  it ends on the lowest ISO the aperture can make up for, at the same exposure.
+  The shutter keeps its speed unless only a slower one, or a higher ISO, can
+  still reach the exposure. A pinned setting never moves.
+
+### Fixed
+
+- ETTR no longer stops as interrupted when a setting's reading arrives late on
+  a slow connection, and no longer ends on a brighter step it can't check.
+
 ## 26.44.4 - 2026-10-29
 
 ### Added

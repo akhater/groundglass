@@ -147,25 +147,45 @@ fn mean(channels: &[Vec<u32>]) -> Option<f64> {
 pub struct Dial {
     pub setting: ExposureSetting,
     pub at: i32,
+    /// Where the run began with it, and `spread` works from: a run keeps the first
+    /// round's `start`s, so the same exposure gets the same settings in every round.
+    pub start: i32,
     choices: Vec<(i32, String)>,
 }
+
+/// ISO 100 in thirds, the lowest ETTR uses: 50 (L) is an expanded value, not the base ISO.
+const BASE_ISO: i32 = 0;
 
 impl Dial {
     /// None when the value has no brightness (auto) or the camera offers no choice
     /// (the shooting mode sets it).
     pub fn new(setting: ExposureSetting, value: &str, choices: &[String]) -> Option<Self> {
         let at = thirds(setting, value)?;
-        let choices: Vec<_> =
-            choices.iter().filter_map(|choice| Some((thirds(setting, choice)?, choice.clone()))).collect();
-        (!choices.is_empty()).then_some(Self { setting, at, choices })
+        let lowest = if setting == ExposureSetting::Iso { BASE_ISO } else { i32::MIN };
+        let choices: Vec<_> = choices
+            .iter()
+            .filter_map(|choice| Some((thirds(setting, choice)?, choice.clone())))
+            .filter(|(thirds, _)| *thirds >= lowest)
+            .collect();
+        (!choices.is_empty()).then_some(Self { setting, at, start: at.max(lowest), choices })
     }
 
-    /// The choice from here toward `want` that doesn't pass it, or the end of the range
-    /// when darker is asked past it. None when that is no move toward `want`.
-    fn toward(&self, want: i32) -> Option<&(i32, String)> {
-        let choice = self.choices.iter().filter(|(thirds, _)| *thirds <= want).max_by_key(|(thirds, _)| *thirds);
-        let choice = choice.or_else(|| self.choices.iter().min_by_key(|(thirds, _)| *thirds))?;
-        ((choice.0 - self.at).signum() == (want - self.at).signum() && choice.0 != self.at).then_some(choice)
+    /// The choice from the start toward `want` that doesn't pass it, or the end of the
+    /// range when darker is asked past it. None when that is no move toward `want`.
+    fn toward(&self, want: i32) -> Option<i32> {
+        let thirds = self.choices.iter().map(|(thirds, _)| *thirds);
+        let choice = thirds.clone().filter(|thirds| *thirds <= want).max().or_else(|| thirds.min())?;
+        ((choice - self.start).signum() == (want - self.start).signum() && choice != self.start).then_some(choice)
+    }
+
+    /// Whether it started above its lowest choice.
+    fn above_lowest(&self) -> bool {
+        self.choices.iter().any(|(thirds, _)| *thirds < self.start)
+    }
+
+    /// The choice at `at`, as the camera writes it.
+    fn label(&self, at: i32) -> Option<String> {
+        self.choices.iter().find(|(thirds, _)| *thirds == at).map(|(_, label)| label.clone())
     }
 
     /// Already as far as it goes in the direction of `by`.
@@ -182,31 +202,61 @@ pub struct Move {
     pub stuck: Vec<ExposureSetting>,
 }
 
-/// Spreads `by` thirds over `dials`. Brighter: shutter, then aperture, ISO last
-/// (it adds noise). Darker: ISO first, then shutter, then aperture. A step the
-/// camera's choices can't match lands on the darker side.
+/// The settings for `by` thirds from where `dials` are now, worked out from where
+/// they started, so a step back undoes the step that overshot.
+///
+/// Brighter: shutter, then aperture, ISO last (it adds noise). With ISO free and
+/// above its lowest, the aperture comes first, so the shutter slows only once
+/// nothing but raising ISO is left. Darker: ISO first, then shutter, then aperture.
+/// A step the camera's choices can't match lands on the darker side. Then `trade`.
+/// What darkens is sent first: a step cut short is never brighter than asked.
 pub fn spread(dials: &[Dial], by: i32) -> Move {
     use ExposureSetting::{Av, Iso, Tv};
-    let order = if by > 0 { [Tv, Av, Iso] } else { [Iso, Tv, Av] };
+    let iso_to_lower = dials.iter().any(|dial| dial.setting == Iso && dial.above_lowest());
+    let by = by + dials.iter().map(|dial| dial.at - dial.start).sum::<i32>();
+    let order = match (by > 0, iso_to_lower) {
+        (true, true) => [Av, Tv, Iso],
+        (true, false) => [Tv, Av, Iso],
+        (false, _) => [Iso, Tv, Av],
+    };
     let dials: Vec<&Dial> = order.iter().filter_map(|&setting| dials.iter().find(|dial| dial.setting == setting)).collect();
     let mut left = by;
-    let mut next = Move::default();
+    let mut landing = Vec::new();
     let mut ends = Vec::new();
-    for dial in dials {
-        let mut at = dial.at;
+    for dial in &dials {
+        let mut at = dial.start;
         if left.signum() == by.signum()
-            && let Some((thirds, label)) = dial.toward(dial.at + left)
+            && let Some(thirds) = dial.toward(dial.start + left)
         {
-            next.changes.push((dial.setting, label.clone()));
-            left -= thirds - dial.at;
-            at = *thirds;
+            left -= thirds - dial.start;
+            at = thirds;
         }
+        landing.push(at);
         ends.push((dial.setting, dial.at_end(at, by)));
     }
+    trade(&dials, &mut landing);
+    let mut moves: Vec<_> = dials.iter().zip(landing).filter(|(dial, at)| *at != dial.at).collect();
+    moves.sort_by_key(|(dial, at)| (at - dial.at).signum());
+    let changes = moves.into_iter().filter_map(|(dial, at)| Some((dial.setting, dial.label(at)?))).collect();
+    let mut next = Move { changes, stuck: vec![] };
     if left != 0 && left.signum() == by.signum() {
         next.stuck = ends.into_iter().filter_map(|(setting, end)| end.then_some(setting)).collect();
     }
     next
+}
+
+/// Lowers ISO as far as the aperture can make up to the third, for the same exposure.
+/// The shutter takes no part: it never goes slower just to lower ISO.
+fn trade(dials: &[&Dial], landing: &mut [i32]) {
+    let index = |setting| dials.iter().position(|dial| dial.setting == setting);
+    let (Some(iso), Some(av)) = (index(ExposureSetting::Iso), index(ExposureSetting::Av)) else { return };
+    let (at_iso, at_av) = (landing[iso], landing[av]);
+    let makes_up = |thirds: i32| dials[av].choices.iter().any(|(choice, _)| *choice == at_av + at_iso - thirds);
+    let choices = dials[iso].choices.iter().map(|(thirds, _)| *thirds);
+    if let Some(lowest) = choices.filter(|&thirds| thirds < at_iso && makes_up(thirds)).min() {
+        landing[iso] = lowest;
+        landing[av] = at_av + at_iso - lowest;
+    }
 }
 
 #[cfg(test)]
@@ -223,8 +273,96 @@ mod tests {
     const ISO: &[&str] = &["auto", "100", "125", "160", "200", "250", "320", "400"];
     const APERTURE: &[&str] = &["f2.8", "f3.2", "f3.5", "f4.0", "f4.5", "f5.0", "f5.6"];
 
+    const ISO_WITH_L: &[&str] = &["auto", "50", "100", "125", "160", "200", "400"];
+
     fn changes(changes: &[(ExposureSetting, &str)]) -> Vec<(ExposureSetting, String)> {
         changes.iter().map(|&(setting, value)| (setting, value.to_string())).collect()
+    }
+
+    /// `dial` as a later round sees it: the run began with it on `value`.
+    fn began(mut dial: Dial, value: &str) -> Dial {
+        dial.start = thirds(dial.setting, value).unwrap();
+        dial
+    }
+
+    #[test]
+    fn iso_stops_at_100_with_50_on_offer() {
+        let dials = [dial(Iso, "160", ISO_WITH_L)];
+        assert_eq!(spread(&dials, -2), Move { changes: changes(&[(Iso, "100")]), stuck: vec![] });
+        assert_eq!(spread(&dials, -5), Move { changes: changes(&[(Iso, "100")]), stuck: vec![Iso] });
+    }
+
+    #[test]
+    fn from_50_iso_comes_up_to_100_and_the_rest_makes_up_for_it() {
+        let dials = [dial(Iso, "50", ISO_WITH_L), dial(Tv, "1/125", SHUTTER)];
+        // The same exposure: a stop less from the shutter, sent first.
+        assert_eq!(spread(&dials, 0), Move { changes: changes(&[(Tv, "1/250"), (Iso, "100")]), stuck: vec![] });
+        // A stop brighter is ISO's own stop.
+        assert_eq!(spread(&dials, 3), Move { changes: changes(&[(Iso, "100")]), stuck: vec![] });
+        assert_eq!(spread(&dials, 5), Move { changes: changes(&[(Tv, "1/80"), (Iso, "100")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn iso_comes_down_as_far_as_the_aperture_can_make_up() {
+        let shutter = || dial(Tv, "1/125", SHUTTER);
+        let dials = [dial(Iso, "400", ISO), dial(Av, "f5.6", APERTURE), shutter()];
+        assert_eq!(spread(&dials, 0), Move { changes: changes(&[(Iso, "100"), (Av, "f2.8")]), stuck: vec![] });
+        // Darker too: ISO gives the third and what the aperture buys.
+        assert_eq!(spread(&dials, -2), Move { changes: changes(&[(Iso, "100"), (Av, "f3.5")]), stuck: vec![] });
+        // Only two thirds of aperture left.
+        let dials = [dial(Iso, "400", ISO), dial(Av, "f3.5", APERTURE), shutter()];
+        assert_eq!(spread(&dials, 0), Move { changes: changes(&[(Iso, "250"), (Av, "f2.8")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn the_shutter_never_slows_to_lower_iso() {
+        let dials = [dial(Iso, "400", ISO), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, 0), Move::default());
+    }
+
+    #[test]
+    fn a_trade_keeps_the_exposure_exact() {
+        // ISO in whole stops, and no aperture that makes up a whole number of them.
+        let dials = [dial(Iso, "400", &["100", "200", "400"]), dial(Av, "f3.2", &["f2.0", "f2.8", "f3.2"])];
+        assert_eq!(spread(&dials, 0), Move::default());
+    }
+
+    #[test]
+    fn above_100_the_aperture_brightens_before_the_shutter() {
+        let dials = [dial(Iso, "200", ISO), dial(Av, "f4.0", APERTURE), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, 3), Move { changes: changes(&[(Av, "f2.8")]), stuck: vec![] });
+        // Past the widest the shutter is the only way left, and ISO stays where it was.
+        assert_eq!(spread(&dials, 5), Move { changes: changes(&[(Av, "f2.8"), (Tv, "1/80")]), stuck: vec![] });
+        // Aperture left over goes to ISO.
+        assert_eq!(spread(&dials, 1), Move { changes: changes(&[(Iso, "125"), (Av, "f2.8")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn with_no_iso_to_lower_the_shutter_brightens_first() {
+        // At 100.
+        let dials = [dial(Iso, "100", ISO), dial(Av, "f4.0", APERTURE), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, 2), Move { changes: changes(&[(Tv, "1/80")]), stuck: vec![] });
+        // ISO pinned.
+        let dials = [dial(Av, "f4.0", APERTURE), dial(Tv, "1/125", SHUTTER)];
+        assert_eq!(spread(&dials, 2), Move { changes: changes(&[(Tv, "1/80")]), stuck: vec![] });
+    }
+
+    #[test]
+    fn every_round_spreads_from_where_the_run_began() {
+        // A third past the edge on the shutter: back on the shutter, not on ISO.
+        let dials = [
+            dial(Iso, "200", ISO),
+            began(dial(Av, "f2.8", APERTURE), "f4.0"),
+            began(dial(Tv, "1/100", SHUTTER), "1/125"),
+        ];
+        assert_eq!(spread(&dials, -1), Move { changes: changes(&[(Tv, "1/125")]), stuck: vec![] });
+        // Traded down to 100, then a stop brighter: only ISO moves, back up.
+        let dials = [
+            began(dial(Iso, "100", ISO), "400"),
+            began(dial(Av, "f2.8", APERTURE), "f5.6"),
+            dial(Tv, "1/125", SHUTTER),
+        ];
+        assert_eq!(spread(&dials, 3), Move { changes: changes(&[(Iso, "200")]), stuck: vec![] });
     }
 
     #[test]

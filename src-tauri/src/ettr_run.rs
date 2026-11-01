@@ -62,21 +62,39 @@ pub enum Outcome {
 /// Rounds at most: a few to find the edge, a few for a scene that moves.
 const ROUNDS: usize = 8;
 
+/// Each value as sent or still as it was: the reading is behind the camera, on a
+/// slow connection. Anything else means a hand on a dial.
+fn catching_up(values: &[String], sent: &[String], was: &[String]) -> bool {
+    values.iter().zip(sent.iter().zip(was)).all(|(value, (sent, was))| value == sent || value == was)
+}
+
 /// Moves the settings not `pinned` to the brightest exposure that clips nothing.
 pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome> {
     let mut search = Search::default();
-    // What the settings should read after the last round: anything else means a hand on a dial.
-    let mut expected: Option<Vec<String>> = None;
-    // The settings before the first change, and the histogram and step of the last one.
+    // What the settings should read after the last round, and what they read before it.
+    let mut expected: Option<(Vec<String>, Vec<String>)> = None;
+    // The last round only waited for a reading.
+    let mut behind = false;
+    // Where the free settings began, for `spread`.
+    let mut starts: Option<Vec<i32>> = None;
+    // The settings before the first change, and the histogram and brightness before the last one.
     let mut start: Option<Vec<(ExposureSetting, String)>> = None;
     let mut last: Option<(Vec<Vec<u32>>, i32)> = None;
-    for _ in 0..ROUNDS {
+    for round in 1..=ROUNDS {
         let states = [ExposureSetting::Iso, ExposureSetting::Av, ExposureSetting::Tv]
             .map(|setting| camera.setting(setting).map(|state| (setting, state)));
         let states = states.into_iter().collect::<Result<Vec<_>>>()?;
         let values: Vec<String> = states.iter().map(|(_, state)| state.value.clone()).collect();
-        if expected.is_some_and(|expected| expected != values) {
-            return Ok(Outcome::Interrupted);
+        behind = false;
+        if let Some((sent, was)) = &expected
+            && *sent != values
+        {
+            if !catching_up(&values, sent, was) {
+                return Ok(Outcome::Interrupted);
+            }
+            behind = true;
+            camera.settle();
+            continue;
         }
         let mut dials = Vec::new();
         for (setting, state) in &states {
@@ -99,9 +117,14 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         if dials.is_empty() {
             return Ok(Outcome::Unavailable);
         }
+        let starts = starts.get_or_insert_with(|| dials.iter().map(|dial: &Dial| dial.start).collect());
+        dials.iter_mut().zip(starts.iter()).for_each(|(dial, start)| dial.start = *start);
+        let at = dials.iter().map(|dial| dial.at).sum();
         let histogram = camera.histogram()?;
-        if let Some((before, by)) = &last
-            && !followed(before, &histogram, *by)
+        // A trade that kept the exposure has nothing to show.
+        if let Some((before, from)) = &last
+            && at != *from
+            && !followed(before, &histogram, at - from)
         {
             let now = |setting: &ExposureSetting| states.iter().find(|(s, _)| s == setting).map(|(_, state)| &state.value);
             for (setting, value) in start.iter().flatten().filter(|(setting, value)| now(setting) != Some(value)) {
@@ -112,10 +135,13 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         let Some(reading) = reading(&histogram) else {
             return Ok(Outcome::Unavailable);
         };
-        let at = dials.iter().map(|dial| dial.at).sum();
         let Some(target) = search.next(at, &reading) else {
             return Ok(Outcome::Done);
         };
+        if round == ROUNDS && target > at {
+            // No round left to read it: it could end clipped.
+            return Ok(Outcome::Done);
+        }
         let step = spread(&dials, target - at);
         if step.changes.is_empty() {
             // Stuck a third from the edge is the edge; further from it, the settings are the limit.
@@ -126,7 +152,7 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
             let free = states.iter().filter(|(setting, _)| !pinned.contains(setting));
             start = Some(free.map(|(setting, state)| (*setting, state.value.clone())).collect());
         }
-        let mut next = values;
+        let mut next = values.clone();
         for (setting, value) in &step.changes {
             camera.set(*setting, value)?;
             let index = states.iter().position(|(s, _)| s == setting).unwrap_or_default();
@@ -136,11 +162,12 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
             // Back to what was read safe a round ago: nothing left to learn.
             return Ok(Outcome::Done);
         }
-        expected = Some(next);
-        last = Some((histogram, target - at));
+        expected = Some((next, values));
+        last = Some((histogram, at));
         camera.settle();
     }
-    Ok(Outcome::Done)
+    // A reading still behind after every round is no longer lag.
+    Ok(if behind { Outcome::Interrupted } else { Outcome::Done })
 }
 
 #[cfg(test)]
@@ -172,6 +199,12 @@ mod tests {
         live: Cell<bool>,
         /// Live view stuck at this brightness: exposure simulation off, or frames stalled.
         frozen: Cell<Option<i32>>,
+        /// For this many settles after a set, the readings stay as they were before it.
+        lag: Cell<usize>,
+        behind: Cell<usize>,
+        before: RefCell<[(ExposureSetting, String, Vec<String>); 3]>,
+        /// The set with this number fails.
+        fails_at: Cell<Option<usize>>,
     }
 
     fn list(choices: &[&str]) -> Vec<String> {
@@ -179,12 +212,14 @@ mod tests {
     }
 
     fn scene(iso: &str, av: &str, tv: &str, limit: i32) -> Scene {
+        let values = [
+            (Iso, iso.to_string(), list(ISO)),
+            (Av, av.to_string(), list(APERTURE)),
+            (Tv, tv.to_string(), list(SHUTTER)),
+        ];
         Scene {
-            values: RefCell::new([
-                (Iso, iso.into(), list(ISO)),
-                (Av, av.into(), list(APERTURE)),
-                (Tv, tv.into(), list(SHUTTER)),
-            ]),
+            before: RefCell::new(values.clone()),
+            values: RefCell::new(values),
             limit,
             curve: 1.0,
             sets: Cell::new(0),
@@ -192,7 +227,16 @@ mod tests {
             meanwhile: Box::new(|_| {}),
             live: Cell::new(true),
             frozen: Cell::new(None),
+            lag: Cell::new(0),
+            behind: Cell::new(0),
+            fails_at: Cell::new(None),
         }
+    }
+
+    /// The camera offers ISO 50 too.
+    fn with_l(camera: Scene) -> Scene {
+        camera.values.borrow_mut()[0].2.insert(1, "50".into());
+        camera
     }
 
     impl Scene {
@@ -211,13 +255,20 @@ mod tests {
 
     impl Controls for Scene {
         fn setting(&self, setting: ExposureSetting) -> Result<SettingState> {
-            let values = self.values.borrow();
+            let values = if self.behind.get() > 0 { self.before.borrow() } else { self.values.borrow() };
             let (_, value, choices) = values.iter().find(|(s, ..)| *s == setting).unwrap();
             Ok(SettingState { value: value.clone(), choices: choices.clone() })
         }
 
         fn set(&self, setting: ExposureSetting, value: &str) -> Result<()> {
             self.sets.set(self.sets.get() + 1);
+            if self.fails_at.get() == Some(self.sets.get()) {
+                return Err(CameraError::Refused("no".into()));
+            }
+            if self.lag.get() > 0 && self.behind.get() == 0 {
+                *self.before.borrow_mut() = self.values.borrow().clone();
+                self.behind.set(self.lag.get());
+            }
             self.turn(setting, value);
             Ok(())
         }
@@ -239,8 +290,106 @@ mod tests {
 
         fn settle(&self) {
             self.settles.set(self.settles.get() + 1);
+            self.behind.set(self.behind.get().saturating_sub(1));
             (self.meanwhile)(self);
         }
+    }
+
+    fn settings(camera: &Scene) -> (String, String, String) {
+        (camera.value(Iso), camera.value(Av), camera.value(Tv))
+    }
+
+    fn expect(iso: &str, av: &str, tv: &str) -> (String, String, String) {
+        (iso.into(), av.into(), tv.into())
+    }
+
+    #[test]
+    fn it_ends_on_the_lowest_iso_the_aperture_can_make_up() {
+        // ISO 800 + f5.6 + 1/250: 9 - 15 - 24 = -30, already at the edge.
+        let camera = scene("800", "f5.6", "1/250", -30);
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("200", "f2.8", "1/250"));
+    }
+
+    #[test]
+    fn with_room_left_the_shutter_holds_while_the_aperture_opens() {
+        // A stop of room: ISO comes down too, with the aperture's other stop.
+        let camera = scene("800", "f5.6", "1/250", -27);
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("400", "f2.8", "1/250"));
+    }
+
+    #[test]
+    fn past_the_aperture_the_shutter_is_the_only_way_left() {
+        // Two stops of aperture and two thirds of shutter; ISO doesn't come down for it.
+        let camera = scene("800", "f5.6", "1/250", -22);
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("800", "f2.8", "1/160"));
+    }
+
+    #[test]
+    fn a_pin_wins_and_the_shutter_never_slows_for_iso() {
+        // The aperture pinned: only the shutter could make up a lower ISO.
+        let camera = scene("800", "f5.6", "1/250", -30);
+        assert_eq!(run(&camera, &[Av]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("800", "f5.6", "1/250"));
+        let camera = scene("800", "f5.6", "1/250", -30);
+        assert_eq!(run(&camera, &[Iso]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("800", "f5.6", "1/250"));
+    }
+
+    #[test]
+    fn iso_50_stays_only_when_pinned() {
+        // ISO 50 + f5.6 + 1/250: -3 - 15 - 24 = -42, at the edge.
+        let camera = with_l(scene("50", "f5.6", "1/250", -42));
+        assert_eq!(run(&camera, &[Iso]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("50", "f5.6", "1/250"));
+        let camera = with_l(scene("50", "f5.6", "1/250", -42));
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("100", "f5.6", "1/500"));
+    }
+
+    #[test]
+    fn too_bright_stops_at_100_with_50_on_offer() {
+        let camera = with_l(scene("800", "f2.8", "1/30", -30));
+        assert_eq!(run(&camera, &[Av, Tv]), Ok(Outcome::Limited(vec![Iso])));
+        assert_eq!(camera.value(Iso), "100");
+    }
+
+    #[test]
+    fn a_trade_that_keeps_the_exposure_is_no_failure_to_follow() {
+        // Whole stops of shutter and aperture: a third more can't be had, the trade still can.
+        let camera = scene("800", "f4.0", "1/250", -27);
+        camera.values.borrow_mut()[1].2 = list(&["f2.8", "f4.0"]);
+        camera.values.borrow_mut()[2].2 = list(&["1/1000", "1/500", "1/250", "1/125"]);
+        assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
+        assert_eq!(settings(&camera), expect("400", "f2.8", "1/250"));
+    }
+
+    #[test]
+    fn a_trade_cut_short_is_darker_not_brighter() {
+        let camera = scene("800", "f5.6", "1/250", -30);
+        let before = camera.brightness();
+        camera.fails_at.set(Some(2));
+        assert!(run(&camera, &[]).is_err());
+        assert!(camera.brightness() < before);
+    }
+
+    #[test]
+    fn a_reading_behind_the_camera_is_waited_for() {
+        let camera = scene("100", "f5.6", "1/500", -33);
+        camera.lag.set(2);
+        assert_eq!(run(&camera, &[Iso, Av]), Ok(Outcome::Done));
+        assert_eq!(camera.value(Tv), "1/60");
+    }
+
+    #[test]
+    fn a_reading_that_never_catches_up_is_interrupted_in_time() {
+        let camera = scene("100", "f5.6", "1/500", -33);
+        camera.lag.set(ROUNDS * 2);
+        assert_eq!(run(&camera, &[Iso, Av]), Ok(Outcome::Interrupted));
+        assert_eq!(camera.sets.get(), 1);
+        assert!(camera.settles.get() <= ROUNDS);
     }
 
     #[test]
@@ -293,7 +442,7 @@ mod tests {
         let mut camera = scene("100", "f5.6", "1/500", -33);
         camera.meanwhile = Box::new(|camera| camera.turn(Av, "f8.0"));
         assert_eq!(run(&camera, &[Iso, Av]), Ok(Outcome::Interrupted));
-        assert_eq!(camera.sets.get(), 1);
+        assert_eq!((camera.sets.get(), camera.settles.get()), (1, 1));
         assert_eq!(camera.value(Av), "f8.0");
     }
 
@@ -361,5 +510,32 @@ mod tests {
         let camera = Flicker(scene("400", "f5.6", "1/250", -33), Cell::new(false));
         assert!(run(&camera, &[Iso, Av]).is_ok());
         assert!(camera.0.sets.get() <= ROUNDS);
+    }
+
+    /// A picture that brightens with every step and always shows a little room left.
+    struct Creep(Scene, Cell<usize>);
+
+    impl Controls for Creep {
+        fn setting(&self, setting: ExposureSetting) -> Result<SettingState> {
+            self.0.setting(setting)
+        }
+        fn set(&self, setting: ExposureSetting, value: &str) -> Result<()> {
+            self.0.set(setting, value)
+        }
+        fn histogram(&self) -> Result<Vec<Vec<u32>>> {
+            self.1.set(self.1.get() + 1);
+            let mut levels = vec![0; 256];
+            levels[100 + 6 * self.1.get()] = 90_000;
+            levels[236] = 10_000;
+            Ok(vec![levels])
+        }
+        fn settle(&self) {}
+    }
+
+    #[test]
+    fn the_last_round_takes_no_step_up_it_cannot_read() {
+        let camera = Creep(scene("100", "f5.6", "1/500", -33), Cell::new(0));
+        assert_eq!(run(&camera, &[Iso, Av]), Ok(Outcome::Done));
+        assert_eq!(camera.0.sets.get(), ROUNDS - 1);
     }
 }
