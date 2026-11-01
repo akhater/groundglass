@@ -14,12 +14,14 @@ Newest first.
   1728x1728) are kept at 65 points per colour so they stay light on a phone;
   almost all colours stay within one or two steps out of 255. A PNG that isn't
   a HaldCLUT is refused with the reason.
-- **One-tap connect (Android, being tested):** a Bluetooth button beside Start
+- **One-tap connect (Android):** a Bluetooth button beside Start
   pairs with a camera on its pairing screen the first time. After that it wakes
   the camera, starts its Wi-Fi and joins it for Groundglass alone, so the phone
   stays on mobile data. Each step shows as it went, and which protocol answered.
   Bluetooth only sets this up: the picture runs over Wi-Fi. If the session is
-  lost, or Groundglass is hidden and comes back, it reconnects the same way.
+  lost, or Groundglass is hidden and comes back, it reconnects the same way;
+  after Stop, or after being hidden, that waits until the camera has finished.
+  The phone stays awake while connecting and during live view.
 - **Keep the camera's screen on** now changes during live view without
   reconnecting.
 

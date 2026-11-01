@@ -45,8 +45,6 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private var camera: CameraGatt? = null
     /** The camera finishing up after a release; the next connect waits for it. */
     private var handingBack: Thread? = null
-    /** What the camera did after the last release, for the next report. */
-    private var handedBack: String? = null
 
     /** Whether a tap can start now: the screen dims the button when it can't. */
     @Command
@@ -98,7 +96,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         val leaving = camera ?: return
         camera = null
         handingBack = thread(name = "camera-hand-back") {
-            handedBack = leaving.awaitCameraClose(HAND_BACK_WAIT_S)
+            leaving.awaitCameraClose(HAND_BACK_WAIT_S)
             leaving.close()
         }
     }
@@ -125,8 +123,6 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private fun link(client: Client, report: JSObject) {
         handingBack?.join()
         handingBack = null
-        handedBack?.let { report.put("registration", it) }
-        handedBack = null
         close()
         blocker()?.let { throw Stop(it) }
         val bonded = CameraGatt.bondedCamera(activity)
@@ -134,7 +130,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         camera = gatt
         report.put("woke", true)
         if (bonded == null) pair(gatt, client.name)
-        val access = startWifi(gatt, client.takeIf { bonded == null }) { report.put("registration", it) }
+        val access = startWifi(gatt, client.takeIf { bonded == null }) { if ("refused" in it) report.put("registration", it) }
         report.put("wifiStarted", true)
         wifi.join(access.name, access.password)
         report.put("joined", true)

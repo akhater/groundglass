@@ -30,7 +30,7 @@ export type BluetoothLink = {
   wifiStarted: boolean;
   joined: boolean;
   address: string | null;
-  /** How the camera took the app's id and name, write by write. */
+  /** How the camera took the app's id and name, write by write, when it refused one. */
   registration: string | null;
   failure: string | null;
 };
