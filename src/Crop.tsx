@@ -2,9 +2,12 @@
 // aspect ratio is darkened. The photo itself is never cropped.
 import type { Box } from "./picture";
 
-export type Ratio = "1:1" | "5:4" | "4:3" | "16:9";
+export type Ratio = "1:1" | "5:4" | "4:3" | "16:9" | "65:24";
 
-export const RATIOS: Ratio[] = ["1:1", "5:4", "4:3", "16:9"];
+export const RATIOS: Ratio[] = ["1:1", "5:4", "4:3", "16:9", "65:24"];
+
+/** The name shown for `ratio`: 65:24 is the XPan panorama (24 x 65 mm). */
+export const ratioLabel = (ratio: Ratio) => (ratio === "65:24" ? "XPan" : ratio);
 
 /** The largest box of `ratio` centred in `box`, its long side along the box's: portrait on a tall picture. */
 export function cropBox(box: Box, ratio: Ratio): Box {
