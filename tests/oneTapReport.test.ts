@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { oneTapReport } from "../src/oneTapReport.ts";
 
-const nothing = { woke: false, wifiStarted: false, joined: false, address: null, registration: null, failure: null };
+const nothing = { woke: false, wifiStarted: false, joined: false, address: null, registration: null, detail: null, failure: null };
 const joined = { ...nothing, woke: true, wifiStarted: true, joined: true, address: "192.168.1.2" };
 const states = (report: ReturnType<typeof oneTapReport>) => report.steps.map((step) => step.state);
 
@@ -66,4 +66,11 @@ test("how the Bluetooth registration went leads the detail, even when Wi-Fi neve
   assert.equal(oneTapReport({ ...nothing, registration, failure: "Tap again." }).detail, registration);
   const report = oneTapReport({ ...joined, registration }, { live: false, error: "no answer" });
   assert.equal(report.detail, `${registration} · no answer`);
+});
+
+test("the camera's answer at the step that stopped is in the detail", () => {
+  const detail = "Wi-Fi state: 01 03";
+  const report = oneTapReport({ ...nothing, woke: true, detail, failure: "The camera didn't start its Wi-Fi." });
+  assert.deepEqual(states(report), ["done", "failed", "skipped", "skipped"]);
+  assert.equal(report.detail, detail);
 });

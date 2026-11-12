@@ -8,6 +8,15 @@ Newest first.
 
 - **Version number:** the running version shows beside the title before Start.
 
+### Fixed
+
+- **Android 17:** connecting reached nothing, by address or one-tap, because
+  Android 17 keeps the local network from apps until they ask. Groundglass now
+  asks with Nearby devices (no new prompt once Bluetooth is allowed), and says
+  what to allow if it's turned down.
+- **One-tap report:** when the camera's Wi-Fi doesn't start, the grey line
+  says which step stopped and what the camera answered.
+
 ## 26.44.5 - 2026-11-01
 
 ### Added

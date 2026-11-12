@@ -23,6 +23,8 @@ pub enum CameraError {
     Refused(String),
     /// The camera turned down pairing with Groundglass (PTP/IP), giving this reason.
     PairingRefused(u32),
+    /// Android 17 keeps the phone's local network from the app until Nearby devices is allowed.
+    NoLocalNetwork,
 }
 
 pub type Result<T> = std::result::Result<T, CameraError>;
