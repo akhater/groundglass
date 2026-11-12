@@ -7,6 +7,7 @@ Newest first.
 ### Added
 
 - **Version number:** the running version shows beside the title before Start.
+- **XPan crop:** the crop frame offers the XPan panorama, 65:24 (about 2.7:1).
 - **Connect counter:** while one-tap connects, the seconds count up beside
   "Connecting…", so a long wait reads as still working.
 
