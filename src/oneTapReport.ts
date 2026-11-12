@@ -30,6 +30,7 @@ function detail(link: BluetoothLink, answer?: Answer): string | null {
   const { error, survey } = answer ?? {};
   const parts = [
     link.registration,
+    link.detail,
     error,
     ...(survey?.services ?? []),
     survey?.ports.length ? `ports ${survey.ports.join(", ")}` : undefined,
