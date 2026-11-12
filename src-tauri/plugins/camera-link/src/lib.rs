@@ -16,6 +16,8 @@ pub struct Link {
     pub address: Option<String>,
     /// How the camera took the app's id and name, write by write, when it refused one.
     pub registration: Option<String>,
+    /// What the camera last said at the step that stopped.
+    pub detail: Option<String>,
     pub failure: Option<String>,
 }
 
@@ -45,6 +47,12 @@ struct Readiness {
 }
 
 #[cfg(target_os = "android")]
+#[derive(Deserialize)]
+struct Allowed {
+    allowed: bool,
+}
+
+#[cfg(target_os = "android")]
 pub struct CameraLink<R: Runtime>(tauri::plugin::PluginHandle<R>);
 
 #[cfg(target_os = "android")]
@@ -53,6 +61,13 @@ impl<R: Runtime> CameraLink<R> {
     pub fn ready(&self) -> Result<bool, String> {
         let answer = self.0.run_mobile_plugin::<Readiness>("ready", NoArguments {});
         answer.map(|readiness| readiness.ready).map_err(|e| e.to_string())
+    }
+
+    /// Whether the app may reach the local network, asking first where Android
+    /// 17 requires it. Without it, any connect to a camera times out.
+    pub fn local_network(&self) -> Result<bool, String> {
+        let answer = self.0.run_mobile_plugin::<Allowed>("localNetwork", NoArguments {});
+        answer.map(|allowed| allowed.allowed).map_err(|e| e.to_string())
     }
 
     /// Blocks until the phone has joined the camera's Wi-Fi or given up. At a
@@ -81,6 +96,10 @@ pub struct CameraLink<R: Runtime>(std::marker::PhantomData<fn() -> R>);
 impl<R: Runtime> CameraLink<R> {
     pub fn ready(&self) -> Result<bool, String> {
         Ok(false)
+    }
+
+    pub fn local_network(&self) -> Result<bool, String> {
+        Ok(true)
     }
 
     pub fn connect(&self, _client_id: &[u8; 16], _client_name: &str) -> Result<Link, String> {

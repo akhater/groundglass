@@ -39,7 +39,16 @@ impl Connection {
 
 #[tauri::command(async)]
 /// `pairing` hears once when the camera is in EOS Utility mode, so the screen can say to press OK.
-fn connect(address: String, pairing: Channel<bool>, connection: State<Connection>) -> Result<CameraInfo, CameraError> {
+fn connect(
+    address: String,
+    pairing: Channel<bool>,
+    connection: State<Connection>,
+    link: State<CameraLink<Wry>>,
+) -> Result<CameraInfo, CameraError> {
+    // Asks once on Android 17; if the check itself fails, the connect says what it finds.
+    if !link.local_network().unwrap_or(true) {
+        return Err(CameraError::NoLocalNetwork);
+    }
     // Let go of the last camera first: over PTP the camera takes one session at a time.
     drop(connection.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
     let (camera, info) = Camera::connect(&address, || {

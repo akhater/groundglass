@@ -17,6 +17,9 @@ import kotlin.concurrent.thread
 
 private const val NEARBY = "nearby"
 private const val LOCATION = "location"
+private const val LOCAL_NETWORK = "localNetwork"
+/** Android 17: the local network needs ACCESS_LOCAL_NETWORK. A literal, as the plugin compiles against 36. */
+private const val ANDROID_17 = 37
 /** Canon's app kept Bluetooth up and the camera closed it 27 s after its Wi-Fi went off (recorded 2026-10-31). */
 private const val HAND_BACK_WAIT_S = 45L
 
@@ -31,13 +34,14 @@ class KeepAwakeArgs {
     var on: Boolean = false
 }
 
-/** A step that can't go on; [sentence] tells the user what to do. */
-class Stop(val sentence: String) : Exception(sentence)
+/** A step that can't go on; [sentence] tells the user what to do, [detail] what the camera last said. */
+class Stop(val sentence: String, val detail: String? = null) : Exception(sentence)
 
 /** Wakes the paired camera and joins its Wi-Fi. Every outcome resolves: failures are a sentence in the report. */
 @TauriPlugin(permissions = [
     Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN], alias = NEARBY),
     Permission(strings = [Manifest.permission.ACCESS_FINE_LOCATION], alias = LOCATION),
+    Permission(strings = ["android.permission.ACCESS_LOCAL_NETWORK"], alias = LOCAL_NETWORK),
 ])
 class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     private val wifi = WifiJoin(activity)
@@ -68,6 +72,26 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
         } else {
             invoke.resolve(report().put("failure", "Allow Groundglass in the phone's app settings, then tap again."))
         }
+    }
+
+    /**
+     * Whether the app may reach the camera's address. Before Android 17 it always
+     * may; on 17 Android asks once, or not at all when Nearby devices is already
+     * allowed for Bluetooth.
+     */
+    @Command
+    fun localNetwork(invoke: Invoke) {
+        when {
+            Build.VERSION.SDK_INT < ANDROID_17 -> localNetworkAnswered(invoke)
+            getPermissionState(LOCAL_NETWORK) == PermissionState.GRANTED -> localNetworkAnswered(invoke)
+            else -> requestPermissionForAlias(LOCAL_NETWORK, invoke, "localNetworkAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun localNetworkAnswered(invoke: Invoke) {
+        val allowed = Build.VERSION.SDK_INT < ANDROID_17 || getPermissionState(LOCAL_NETWORK) == PermissionState.GRANTED
+        invoke.resolve(JSObject().put("allowed", allowed))
     }
 
     @Command
@@ -111,6 +135,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
             } catch (stop: Stop) {
                 close()
                 report.put("failure", stop.sentence)
+                stop.detail?.let { report.put("detail", it) }
             } catch (error: Exception) {
                 close()
                 report.put("failure", "Bluetooth connect failed (${error.javaClass.simpleName}): tap again.")

@@ -11,7 +11,8 @@ export type CameraError =
   | { kind: "LiveViewOff" }
   | { kind: "Busy" }
   | { kind: "Refused"; detail: string }
-  | { kind: "PairingRefused"; detail: number };
+  | { kind: "PairingRefused"; detail: number }
+  | { kind: "NoLocalNetwork" };
 
 /** `onPairing` runs when the camera is in EOS Utility mode, where the first connect waits for OK on the camera. */
 export function connect(address: string, onPairing: () => void) {
@@ -33,6 +34,8 @@ export type BluetoothLink = {
   address: string | null;
   /** How the camera took the app's id and name, write by write, when it refused one. */
   registration: string | null;
+  /** What the camera last said at the step that stopped. */
+  detail: string | null;
   failure: string | null;
 };
 /** Wakes the paired camera over Bluetooth and joins its Wi-Fi. */
@@ -155,6 +158,8 @@ export function describe(error: unknown): string {
       return `The camera refused: ${e.detail}`;
     case "PairingRefused":
       return "The camera refused to pair: choose Groundglass again in its Wi-Fi menu.";
+    case "NoLocalNetwork":
+      return "Allow Nearby devices for Groundglass in the phone's app settings, then try again.";
     default:
       return String(error);
   }
