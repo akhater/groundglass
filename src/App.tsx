@@ -7,7 +7,7 @@ import { Setting, Tool } from "./Controls";
 import { FocusButton, SETTINGS, setByCamera, setByCameraNote, useExposure } from "./Exposure";
 import { AfFrames } from "./AfFrames";
 import { Composition, GuideArt, GUIDES, TURNING, type Guide } from "./Composition";
-import { Crop, CropArt, cropBox, RATIOS, type Ratio } from "./Crop";
+import { Crop, CropArt, cropBox, RATIOS, ratioLabel, type Ratio } from "./Crop";
 import { EttrButton, useEttr } from "./Ettr";
 import { Histogram } from "./Histogram";
 import { Icon } from "./icons";
@@ -228,7 +228,7 @@ export default function App() {
           label="Crop"
           tiles={[
             { value: "off", label: "Off", art: <NoneArt /> },
-            ...RATIOS.map((ratio) => ({ value: ratio, label: ratio, art: <CropArt ratio={ratio} /> })),
+            ...RATIOS.map((ratio) => ({ value: ratio, label: ratioLabel(ratio), art: <CropArt ratio={ratio} /> })),
           ]}
           value={crop}
           onPick={(value) => setCrop(value as Ratio | "off")}
@@ -394,7 +394,7 @@ export default function App() {
           <Tool
             icon="crop"
             label="Crop"
-            value={crop === "off" ? "Off" : crop}
+            value={crop === "off" ? "Off" : ratioLabel(crop)}
             on={crop !== "off"}
             open={picker === "crop"}
             onClick={() => toggle("crop")}
