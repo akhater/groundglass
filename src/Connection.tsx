@@ -5,6 +5,7 @@ import type { Status } from "./liveView";
 import { canConnectOverBluetooth, openReleasePage, type Battery } from "./camera";
 import { Icon } from "./icons";
 import type { OneTapReport } from "./oneTapReport";
+import { useElapsed } from "./useElapsed";
 
 type Props = {
   running: boolean;
@@ -35,6 +36,7 @@ type Props = {
 export function Connection(props: Props) {
   const [listOpen, setListOpen] = useState(false);
   const { report, hideReport } = props.oneTap;
+  const elapsed = useElapsed(props.oneTap.working);
   const screenToggle = (
     <label className="toggle">
       <input
@@ -147,7 +149,15 @@ export function Connection(props: Props) {
           </button>
         )}
       </div>
-      {props.oneTap.working && <p role="status">{props.oneTap.hint || "Connecting…"}</p>}
+      {props.oneTap.working && (
+        <p role="status">
+          {props.oneTap.hint || "Connecting…"}{" "}
+          {/* Seen, not read out every second. */}
+          <span className="elapsed" aria-hidden="true">
+            {elapsed} s
+          </span>
+        </p>
+      )}
       {screenToggle}
     </form>
   );

@@ -7,6 +7,8 @@ Newest first.
 ### Added
 
 - **Version number:** the running version shows beside the title before Start.
+- **Connect counter:** while one-tap connects, the seconds count up beside
+  "Connecting…", so a long wait reads as still working.
 
 ## 26.44.5 - 2026-11-01
 

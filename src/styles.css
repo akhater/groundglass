@@ -1233,6 +1233,13 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+/* Seconds while connecting: muted, and steady in width as it counts. */
+.panel .elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .panel input:not([type]) {
   min-width: 0;
   padding: 12px 14px;
