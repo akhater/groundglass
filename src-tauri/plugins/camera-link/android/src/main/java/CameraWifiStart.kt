@@ -65,23 +65,29 @@ fun startWifi(camera: CameraGatt, client: Client?, onRegistered: (String) -> Uni
     client?.let { onRegistered(register(camera, it)) }
 
     camera.write(WIFI_COMMAND, ASK_ADDRESS)
-    val address = camera.change(WIFI_COMMAND, REPLY_WAIT_S)?.let(::cameraAddress) ?: throw Stop(NO_WIFI)
+    val answer = camera.change(WIFI_COMMAND, REPLY_WAIT_S)
+    val address = answer?.let(::cameraAddress) ?: throw Stop(NO_WIFI, "address: ${answer?.let(::hex) ?: "no answer"}")
     camera.write(SESSION_COMMAND, SESSION_START)
-    camera.change(SESSION_REPLY, REPLY_WAIT_S) ?: throw Stop(NO_WIFI)
+    camera.change(SESSION_REPLY, REPLY_WAIT_S) ?: throw Stop(NO_WIFI, "session: no answer")
 
     val name = text(camera.read(WIFI_NAME))
     val password = text(camera.read(WIFI_PASSWORD))
     camera.read(WIFI_DETAILS)
-    if (name.isEmpty() || password.isEmpty()) throw Stop(NO_WIFI)
+    if (name.isEmpty() || password.isEmpty()) throw Stop(NO_WIFI, "Wi-Fi name or password empty")
 
     SETUP_CODES.forEach { camera.write(SETUP_COMMAND, byteArrayOf(it)) }
     camera.change(SETUP_REPLY, REPLY_WAIT_S) { it.firstOrNull() == LAST_SETUP_REPLY }
     Thread.sleep(SETUP_SETTLE_MS)
 
     camera.write(WIFI_COMMAND, START_WIFI)
-    camera.change(WIFI_STATE, WIFI_START_WAIT_S) { it.contentEquals(WIFI_RUNNING) } ?: throw Stop(NO_WIFI)
+    val states = mutableListOf<String>()
+    camera.change(WIFI_STATE, WIFI_START_WAIT_S) { states += hex(it); it.contentEquals(WIFI_RUNNING) }
+        ?: throw Stop(NO_WIFI, "Wi-Fi state: ${states.joinToString(", ").ifEmpty { "no answer" }}")
     return WifiAccess(name, password, address)
 }
+
+/** Bytes as the recordings show them: `02 03`. */
+private fun hex(value: ByteArray) = value.joinToString(" ") { "%02x".format(it) }
 
 /**
  * Camera Connect writes these once, when pairing, just before asking for the
