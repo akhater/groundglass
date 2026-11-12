@@ -2,7 +2,7 @@
 
 Newest first.
 
-## 26.44.6 - unreleased
+## 26.46.1 - 2026-11-12
 
 ### Added
 
