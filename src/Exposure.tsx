@@ -8,8 +8,8 @@ export const SETTINGS: { key: camera.ExposureSetting; label: string }[] = [
   { key: "tv", label: "Shutter" },
 ];
 
-/** Re-read this often, so changes made on the camera's dials show up. */
-const REFRESH_MS = 4000;
+/** Re-read this often, so the camera's own changes show up: its dials, and what it meters in Av, Tv and P. */
+const REFRESH_MS = 1000;
 
 type States = Partial<Record<camera.ExposureSetting, camera.SettingState>>;
 
@@ -23,8 +23,12 @@ export function useExposure(live: boolean) {
   const [states, setStates] = useState<States>({});
   const [mode, setMode] = useState<string | null>(null);
   const [error, setError] = useState("");
+  /** Reads are numbered: one that started before what is shown would show older values, and is dropped. */
+  const reads = useRef(0);
+  const shown = useRef(0);
 
   async function refresh() {
+    const read = ++reads.current;
     const next: States = {};
     for (const { key } of SETTINGS) {
       try {
@@ -33,8 +37,11 @@ export function useExposure(live: boolean) {
         // Not every mode or body has every setting: leave it out.
       }
     }
+    const nextMode = await camera.shootingMode().catch(() => null);
+    if (read < shown.current) return;
+    shown.current = read;
     setStates(next);
-    setMode(await camera.shootingMode().catch(() => null));
+    setMode(nextMode);
   }
 
   useEffect(() => {
@@ -42,13 +49,23 @@ export function useExposure(live: boolean) {
       setStates({});
       return;
     }
-    void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
-    return () => clearInterval(timer);
+    let running = true;
+    void (async () => {
+      // One read at a time: a slow connection spaces them out instead of piling them up.
+      while (running) {
+        await refresh();
+        await new Promise((resolve) => setTimeout(resolve, REFRESH_MS));
+      }
+    })();
+    return () => {
+      running = false;
+      shown.current = ++reads.current;
+    };
   }, [live]);
 
   async function change(key: camera.ExposureSetting, value: string) {
     // Show the new value at once; the refresh corrects it if the camera refused.
+    shown.current = ++reads.current;
     setStates((current) => {
       const state = current[key];
       return state ? { ...current, [key]: { ...state, value } } : current;
