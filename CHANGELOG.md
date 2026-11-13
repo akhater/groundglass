@@ -4,6 +4,20 @@ Newest first.
 
 ## 26.46.2 - unreleased
 
+### Changed
+
+- **ETTR with Auto ISO:** when ISO isn't pinned, ETTR takes it off Auto,
+  starting from ISO 100, instead of staying dimmed. With ISO pinned on Auto,
+  a tap says to unpin it.
+
+### Fixed
+
+- **ETTR from ISO 50:** ETTR goes back to ISO 100 when the shutter or aperture
+  can make up for it, so 50 (L) stays a last resort; before, it kept 50.
+- **Shutter and aperture in Av, Tv and P:** the values the camera sets are read
+  every second instead of every 4, and a late answer no longer overwrites a
+  newer one.
+
 ## 26.46.1 - 2026-11-12
 
 ### Added
