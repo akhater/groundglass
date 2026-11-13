@@ -134,7 +134,7 @@ export function Connection(props: Props) {
         <button type="submit" className="primary" disabled={!props.address.trim() || props.oneTap.working}>
           Start
         </button>
-        {/* Dimmed, not disabled, while Bluetooth or Wi-Fi is off: a tap says what to turn on. */}
+        {/* Dimmed, not disabled, while Bluetooth or Wi-Fi is off: a tap asks to turn it on. */}
         {canConnectOverBluetooth && (
           <button
             type="button"

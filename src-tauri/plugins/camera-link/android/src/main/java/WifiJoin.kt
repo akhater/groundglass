@@ -21,11 +21,14 @@ class WifiJoin(context: Context) {
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
     private var request: ConnectivityManager.NetworkCallback? = null
 
+    val isOff: Boolean
+        get() = !wifi.isWifiEnabled
+
     /** What to do before joining is possible; null when it is. */
     val blocker: String?
         get() = when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> NEEDS_ANDROID_10
-            !wifi.isWifiEnabled -> "Turn Wi-Fi on, then tap again."
+            isOff -> "Turn Wi-Fi on, then tap again."
             else -> null
         }
 
