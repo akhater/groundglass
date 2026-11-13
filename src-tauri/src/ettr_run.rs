@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::camera::{Camera, Result, SettingState};
 use crate::ccapi::ExposureSetting;
-use crate::ettr::{Dial, Reading, Search, followed, reading, spread};
+use crate::ettr::{Dial, Reading, Search, followed, lowest_iso, reading, spread};
 
 /// What a round needs from the camera.
 pub trait Controls {
@@ -95,6 +95,8 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
             continue;
         }
         let mut dials = Vec::new();
+        // Auto ISO free to move: ETTR takes it off Auto, to this.
+        let mut off_auto = None;
         for (setting, state) in &states {
             // Set by the mode (the shutter in Av): the camera meters it again after every change, undoing it.
             if state.choices.is_empty() {
@@ -107,14 +109,22 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
                 }
                 continue;
             }
+            if *setting == ExposureSetting::Iso && state.value == "auto" {
+                let Some(iso) = lowest_iso(&state.choices) else {
+                    return Ok(Outcome::Unavailable);
+                };
+                off_auto = Some(iso.to_string());
+                continue;
+            }
             let Some(dial) = Dial::new(*setting, &state.value, &state.choices) else {
                 return Ok(Outcome::Unavailable);
             };
             dials.push(dial);
         }
-        if dials.is_empty() {
+        if dials.is_empty() && off_auto.is_none() {
             return Ok(Outcome::Unavailable);
         }
+        let free = || states.iter().filter(|(setting, _)| !pinned.contains(setting));
         let histogram = camera.histogram()?;
         if let Some((before, by)) = &last
             && !followed(before, &histogram, *by)
@@ -128,6 +138,15 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
         let Some(reading) = reading(&histogram) else {
             return Ok(Outcome::Unavailable);
         };
+        if let Some(iso) = off_auto {
+            // From the lowest ISO, read afresh: what Auto ISO showed has no brightness to count from.
+            start.get_or_insert_with(|| free().map(|(setting, state)| (*setting, state.value.clone())).collect());
+            camera.set(ExposureSetting::Iso, &iso)?;
+            let next = states.iter().map(|(setting, state)| if *setting == ExposureSetting::Iso { &iso } else { &state.value });
+            expected = Some((next.cloned().collect(), values));
+            camera.settle();
+            continue;
+        }
         let at = dials.iter().map(|dial| dial.at).sum();
         let Some(target) = search.next(at, &reading) else {
             return Ok(Outcome::Done);
@@ -142,10 +161,7 @@ pub fn run(camera: &impl Controls, pinned: &[ExposureSetting]) -> Result<Outcome
             let near = reading == Reading::Headroom(0);
             return Ok(if step.stuck.is_empty() || near { Outcome::Done } else { Outcome::Limited(step.stuck) });
         }
-        if start.is_none() {
-            let free = states.iter().filter(|(setting, _)| !pinned.contains(setting));
-            start = Some(free.map(|(setting, state)| (*setting, state.value.clone())).collect());
-        }
+        start.get_or_insert_with(|| free().map(|(setting, state)| (*setting, state.value.clone())).collect());
         let mut next = values.clone();
         for (setting, value) in &step.changes {
             camera.set(*setting, value)?;
@@ -239,8 +255,9 @@ mod tests {
             self.values.borrow_mut().iter_mut().find(|(s, ..)| *s == setting).unwrap().1 = value.into();
         }
 
+        /// Auto ISO meters to 400 here.
         fn brightness(&self) -> i32 {
-            [Iso, Av, Tv].iter().map(|&s| crate::ettr::thirds(s, &self.value(s)).unwrap()).sum()
+            [Iso, Av, Tv].iter().map(|&s| crate::ettr::thirds(s, &self.value(s)).unwrap_or(6)).sum()
         }
     }
 
@@ -308,6 +325,38 @@ mod tests {
         let camera = with_l(scene("400", "f5.6", "1/250", -42));
         assert_eq!(run(&camera, &[]), Ok(Outcome::Done));
         assert_eq!((camera.value(Iso), camera.value(Tv)), ("100".to_string(), "1/500".to_string()));
+    }
+
+    #[test]
+    fn from_50_it_leaves_50_when_the_shutter_can_make_up_for_it() {
+        // ISO 50 + f5.6 + 1/250: -3 - 15 - 24 = -42, clipping above -41: ISO 100 + 1/400.
+        let camera = with_l(scene("50", "f5.6", "1/250", -41));
+        assert_eq!(run(&camera, &[Av]), Ok(Outcome::Done));
+        assert_eq!((camera.value(Iso), camera.value(Tv)), ("100".to_string(), "1/400".to_string()));
+    }
+
+    #[test]
+    fn auto_iso_free_to_move_starts_from_100() {
+        let camera = scene("auto", "f5.6", "1/500", -33);
+        assert_eq!(run(&camera, &[Av]), Ok(Outcome::Done));
+        assert_eq!((camera.value(Iso), camera.value(Tv)), ("100".to_string(), "1/60".to_string()));
+    }
+
+    #[test]
+    fn auto_iso_is_put_back_when_live_view_does_not_follow() {
+        let camera = scene("auto", "f5.6", "1/500", -33);
+        camera.frozen.set(Some(-42));
+        assert_eq!(run(&camera, &[Av]), Ok(Outcome::NoResponse));
+        assert_eq!((camera.value(Iso), camera.value(Tv)), ("auto".to_string(), "1/500".to_string()));
+    }
+
+    #[test]
+    fn auto_iso_is_left_alone_when_ettr_cannot_run() {
+        // The camera sets the shutter (Av mode).
+        let camera = scene("auto", "f5.6", "1/500", -33);
+        camera.values.borrow_mut()[2].2.clear();
+        assert_eq!(run(&camera, &[Av]), Ok(Outcome::Unavailable));
+        assert_eq!(camera.sets.get(), 0);
     }
 
     #[test]

@@ -38,17 +38,21 @@ export function useEttr(live: boolean, states: States, mode: string | null, refr
   const [error, setError] = useState("");
 
   // As ettr_run.rs asks: every setting settable (the camera meters again what its mode sets,
-  // undoing each change), none pinned on auto (Auto ISO), the free ones not on auto.
+  // undoing each change), none pinned on auto (Auto ISO), and only ISO on auto when free:
+  // ETTR takes it off Auto.
   const keys = ["tv", "av", "iso"] as const;
-  const usable = keys.every((key) => {
+  const isoPinnedOnAuto = pinned.includes("iso") && states.iso?.value === "auto";
+  const usable = !isoPinnedOnAuto && keys.every((key) => {
     const state = states[key];
-    return !!state && state.value !== "auto" && state.choices.length > 0;
+    return !!state && (state.value !== "auto" || key === "iso") && state.choices.length > 0;
   });
   const byCamera = keys.filter((key) => setByCamera(states[key])).map((key) => NAMES[key]);
-  /** Why ETTR can't run in this shooting mode, said on a tap. */
+  /** Why ETTR can't run now, said on a tap. */
   const blocked = byCamera.length
     ? `ETTR needs manual exposure: the camera sets the ${byCamera.join(" and ")} in ${mode ?? "this mode"}`
-    : "";
+    : isoPinnedOnAuto
+      ? "ISO is pinned on Auto: unpin it and ETTR sets it"
+      : "";
 
   function pin(key: camera.ExposureSetting) {
     const next = pinned.includes(key) ? pinned.filter((k) => k !== key) : [...pinned, key];
