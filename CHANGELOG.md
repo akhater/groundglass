@@ -2,10 +2,14 @@
 
 Newest first.
 
-## 26.46.2 - unreleased
+## 26.46.2 - 2026-11-13
 
 ### Changed
 
+- **Bluetooth and Wi-Fi off:** one-tap asks to turn them on instead of
+  stopping: Android's Bluetooth prompt, then the Wi-Fi panel (Android 10 and
+  later don't let an app switch Wi-Fi on itself). Once on, the connect carries
+  on; if declined, the report says what to turn on.
 - **ETTR with Auto ISO:** when ISO isn't pinned, ETTR takes it off Auto,
   starting from ISO 100, instead of staying dimmed. With ISO pinned on Auto,
   a tap says to unpin it.
