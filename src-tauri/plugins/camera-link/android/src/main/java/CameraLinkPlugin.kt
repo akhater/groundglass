@@ -2,9 +2,13 @@ package co.groundglass.cameralink
 
 import android.Manifest
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import app.tauri.PermissionState
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -59,7 +63,7 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun connect(invoke: Invoke) {
         if (getPermissionState(permission()) == PermissionState.GRANTED) {
-            start(invoke)
+            turnOn(invoke)
         } else {
             requestPermissionForAlias(permission(), invoke, "permissionAnswered")
         }
@@ -68,10 +72,36 @@ class CameraLinkPlugin(private val activity: Activity) : Plugin(activity) {
     @PermissionCallback
     fun permissionAnswered(invoke: Invoke) {
         if (getPermissionState(permission()) == PermissionState.GRANTED) {
-            start(invoke)
+            turnOn(invoke)
         } else {
             invoke.resolve(report().put("failure", "Allow Groundglass in the phone's app settings, then tap again."))
         }
+    }
+
+    /**
+     * Asks Android to turn on Bluetooth, then Wi-Fi, whichever is off; the connect
+     * goes on once both are. Said no, and the report says what to turn on.
+     */
+    private fun turnOn(invoke: Invoke) {
+        when {
+            !CameraGatt.isBluetoothOn(activity) ->
+                startActivityForResult(invoke, Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), "bluetoothAnswered")
+            // Android 10 and later don't let an app turn Wi-Fi on: its panel lets the user do it.
+            wifi.isOff && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                startActivityForResult(invoke, Intent(Settings.Panel.ACTION_WIFI), "wifiAnswered")
+            else -> start(invoke)
+        }
+    }
+
+    /** [result] goes unread: whether Bluetooth is on now is what counts. */
+    @ActivityCallback
+    fun bluetoothAnswered(invoke: Invoke, @Suppress("UNUSED_PARAMETER") result: Any) {
+        if (CameraGatt.isBluetoothOn(activity)) turnOn(invoke) else start(invoke)
+    }
+
+    @ActivityCallback
+    fun wifiAnswered(invoke: Invoke, @Suppress("UNUSED_PARAMETER") result: Any) {
+        start(invoke)
     }
 
     /**

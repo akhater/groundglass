@@ -38,7 +38,7 @@ export function useOneTap(cameraDisplayOn: boolean, onLive: (address: string, in
   const [working, setWorking] = useState(false);
   const [hint, setHint] = useState("");
   const [report, setReport] = useState<OneTapReport | null>(null);
-  /** Off while Bluetooth or Wi-Fi is off: the button dims, and a tap says what to turn on. */
+  /** Off while Bluetooth or Wi-Fi is off: the button dims, and a tap asks to turn it on. */
   const [ready, setReady] = useState(true);
   const linked = useRef(false);
 
